@@ -1,0 +1,10 @@
+1-Mesajların okunması durumunda okundu işareti eş zamanlı yansımıyor , 
+gönderici mesajı gönderiyor alıcı o an sohbet kutusunda ve aktif ancak mesaj gelmiyor 
+sonrasında sohbetten çıkıyor  ve tekrar girdiğinde mesajın geldiğini görüyor o an gönderici 
+o an sohbet kutusunda ancak alıcının mesajı okuduğunu görmüyor.  mavi tik eş zamanlı gelmiyor
+alıcıda sohbetten tekrar çıkıp girdiğinde mesajın okunduğunu görüyor.
+2-mesajlar gönderildiğinde eş zamanlı olarak karşı kullanıcının sohbeti açık olmasına rağmen
+karşı tarafa mesaj gitmiyor... karşı taraf sohbetten çıkıp tekrar girdiğinde mesajlar geliyor.
+3-gönderici taraf bir alıcıya mesaj gönderdiğinde alıcı taraf aktif olmamasına rağmen gönderilen 
+mesajda çift çizgi oluyor bu hata , alıcı taraf aktif olduğunda çift çizgi olmalı , alıcı taraf 
+aktif değilse tek çizgi olmalı. alıcı taraf mesajı okuduğunda karşı tarafa çift çizgi olmalı.
