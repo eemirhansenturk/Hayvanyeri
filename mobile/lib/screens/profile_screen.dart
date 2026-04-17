@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -9,8 +9,10 @@ import 'package:shimmer/shimmer.dart';
 import '../config/api_config.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
+import '../services/socket_service.dart';
 import 'favorites_screen.dart';
 import 'login_screen.dart';
+import 'notifications_screen.dart';
 import 'personal_info_screen.dart';
 import 'security_password_screen.dart';
 import 'support_screen.dart';
@@ -29,6 +31,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int _listingCount = 0;
   int _totalViews = 0;
   int _favoriteCount = 0;
+  int _notificationCount = 0;
   bool _isLoadingStats = true;
   bool _isUploadingAvatar = false;
 
@@ -36,6 +39,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     _loadStats();
+    _loadNotificationCount();
+    _setupNotificationListener();
+  }
+
+  @override
+  void dispose() {
+    SocketService().removeNotificationCountListener(_onNotificationCountChanged);
+    super.dispose();
+  }
+
+  void _setupNotificationListener() {
+    SocketService().addNotificationCountListener(_onNotificationCountChanged);
+  }
+
+  void _onNotificationCountChanged(int count) {
+    if (mounted) {
+      setState(() => _notificationCount = count);
+    }
+  }
+
+  Future<void> _loadNotificationCount() async {
+    try {
+      final count = await _apiService.getUnreadNotificationCount();
+      if (mounted) {
+        setState(() => _notificationCount = count);
+        SocketService().notificationCount = count;
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadStats() async {
@@ -50,7 +81,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (!mounted) return;
       setState(() {
-        _listingCount = listings.length;
+        _listingCount = listings.where((item) => item['status'] == 'aktif').length;
         _totalViews = listings.fold<int>(0, (sum, item) {
           final views = item['views'];
           return sum + (views is int ? views : 0);
@@ -76,7 +107,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return views.toString();
   }
 
-  Future<void> _openAvatarPicker() async {
+  Future<void> _openAvatarPicker(bool hasAvatar) async {
     if (_isUploadingAvatar) return;
 
     await showModalBottomSheet<void>(
@@ -102,10 +133,81 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _pickAndUploadAvatar(ImageSource.gallery);
                 },
               ),
+              if (hasAvatar)
+                ListTile(
+                  leading: const Icon(Icons.delete, color: Colors.red),
+                  title: const Text('Profil Resmini Kaldır', style: TextStyle(color: Colors.red)),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _removeAvatar();
+                  },
+                ),
             ],
           ),
         );
       },
+    );
+  }
+
+  Future<void> _removeAvatar() async {
+    try {
+      if (!mounted) return;
+      setState(() => _isUploadingAvatar = true);
+
+      await _apiService.updateProfile(removeAvatar: true);
+      await context.read<AuthProvider>().refreshProfile();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profil resmi kaldırıldı')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Profil resmi kaldırılamadı: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isUploadingAvatar = false);
+    }
+  }
+
+  void _viewAvatar(String avatarUrl, dynamic user) {
+    if (avatarUrl.isEmpty) return;
+    
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (context) => Scaffold(
+          backgroundColor: Colors.black,
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              InteractiveViewer(
+                child: CachedNetworkImage(
+                  imageUrl: avatarUrl,
+                  fit: BoxFit.contain,
+                  placeholder: (_, __) => const Center(child: CircularProgressIndicator(color: Colors.white)),
+                  errorWidget: (_, __, ___) => _buildInitialAvatar(user),
+                ),
+              ),
+              Positioned(
+                top: 50,
+                right: 20,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white, size: 28),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -190,11 +292,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     const SizedBox(height: 16),
                     Center(
-                      child: GestureDetector(
-                        onTap: _openAvatarPicker,
-                        child: Stack(
-                          children: [
-                            Container(
+                      child: Stack(
+                        children: [
+                          GestureDetector(
+                            onTap: () => _viewAvatar(avatarUrl, user),
+                            child: Container(
                               width: 100,
                               height: 100,
                               decoration: BoxDecoration(
@@ -211,17 +313,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                         height: 100,
                                         memCacheWidth: 300,
                                         memCacheHeight: 300,
-                                        placeholder: (_, __) => const Center(
-                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        placeholder: (_, __) => Container(
+                                          color: Colors.grey[200],
+                                          child: const Center(
+                                            child: CircularProgressIndicator(strokeWidth: 2),
+                                          ),
                                         ),
                                         errorWidget: (_, __, ___) => _buildInitialAvatar(user),
                                       )
                                     : _buildInitialAvatar(user),
                               ),
                             ),
-                            Positioned(
-                              bottom: 0,
-                              right: 0,
+                          ),
+                          Positioned(
+                            bottom: 0,
+                            right: 0,
+                            child: GestureDetector(
+                              onTap: () => _openAvatarPicker(hasAvatar),
                               child: Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: const BoxDecoration(
@@ -240,8 +348,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     : Icon(Icons.edit, size: 20, color: Colors.green[700]),
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -311,13 +419,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         MaterialPageRoute(builder: (_) => const FavoritesScreen()),
                       );
                     }),
-                    _buildMenuItem(Icons.notifications_none, 'Bildirimler', () => _showComingSoon(context)),
+                    _buildMenuItem(
+                      Icons.notifications_none,
+                      'Bildirimler',
+                      () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+                        );
+                        if (mounted) {
+                          await _loadNotificationCount();
+                        }
+                      },
+                      badge: _notificationCount > 0 ? _notificationCount : null,
+                    ),
                     _buildMenuItem(Icons.security, 'Güvenlik ve Şifre', () {
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (_) => const SecurityPasswordScreen()),
                       );
                     }),
+                    _buildMenuItem(
+                      Icons.delete_forever,
+                      'Hesabı Sil',
+                      () => _showDeleteAccountDialog(),
+                    ),
                     const SizedBox(height: 24),
                     const Text('Diğer', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 16),
@@ -333,13 +459,76 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       Icons.logout,
                       'Çıkış Yap',
                       () async {
-                        await authProvider.logout();
-                        if (context.mounted) {
-                          Navigator.pushAndRemoveUntil(
-                            context,
-                            MaterialPageRoute(builder: (_) => const LoginScreen()),
-                            (route) => false,
-                          );
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => Dialog(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red[50],
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(Icons.logout, color: Colors.red[700], size: 36),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  const Text('Çıkış Yap', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Hesabınızdan çıkış yapmak istediğinize emin misiniz?',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(fontSize: 15, color: Colors.grey[700], height: 1.4),
+                                  ),
+                                  const SizedBox(height: 28),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton(
+                                          onPressed: () => Navigator.pop(ctx, false),
+                                          style: OutlinedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(vertical: 14),
+                                            side: BorderSide(color: Colors.grey[300]!),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                          ),
+                                          child: Text('İptal', style: TextStyle(fontSize: 16, color: Colors.grey[700], fontWeight: FontWeight.w600)),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: ElevatedButton(
+                                          onPressed: () => Navigator.pop(ctx, true),
+                                          style: ElevatedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(vertical: 14),
+                                            backgroundColor: Colors.red[600],
+                                            foregroundColor: Colors.white,
+                                            elevation: 0,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                          ),
+                                          child: const Text('Çıkış Yap', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                        
+                        if (confirm == true) {
+                          await authProvider.logout();
+                          if (context.mounted) {
+                            Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(builder: (_) => const LoginScreen()),
+                              (route) => false,
+                            );
+                          }
                         }
                       },
                       isDestructive: true,
@@ -407,7 +596,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildMenuItem(IconData icon, String title, VoidCallback onTap, {bool isDestructive = false}) {
+  Widget _buildMenuItem(IconData icon, String title, VoidCallback onTap, {bool isDestructive = false, int? badge}) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
@@ -435,10 +624,244 @@ class _ProfileScreenState extends State<ProfileScreen> {
             color: isDestructive ? Colors.red : Colors.black87,
           ),
         ),
-        trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (badge != null && badge > 0)
+              Container(
+                padding: const EdgeInsets.all(6),
+                margin: const EdgeInsets.only(right: 8),
+                constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                decoration: const BoxDecoration(
+                  color: Colors.red,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    badge > 99 ? '99+' : '$badge',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      height: 1.0,
+                    ),
+                  ),
+                ),
+              ),
+            Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
+          ],
+        ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       ),
     );
+  }
+
+  Future<void> _showDeleteAccountDialog() async {
+    final passwordController = TextEditingController();
+    bool obscurePassword = true;
+    bool isDeleting = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.red[50],
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.delete_forever, color: Colors.red[700], size: 28),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'Hesabı Sil',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Warning text
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red[50],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.red[200]!),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded, color: Colors.red[700], size: 18),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Bu işlem geri alınamaz!',
+                            style: TextStyle(
+                              color: Colors.red[700],
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Hesabınızı sildiğinizde tüm ilanlarınız, mesajlarınız ve favori listeniz kalıcı olarak silinecektir.',
+                        style: TextStyle(color: Colors.red[800], fontSize: 12, height: 1.4),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Devam etmek için şifrenizi girin',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[800],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: passwordController,
+                  obscureText: obscurePassword,
+                  enabled: !isDeleting,
+                  decoration: InputDecoration(
+                    hintText: 'Şifreniz',
+                    hintStyle: TextStyle(color: Colors.grey[400]),
+                    filled: true,
+                    fillColor: Colors.grey[50],
+                    prefixIcon: Icon(Icons.lock_outline, color: Colors.grey[500], size: 20),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                        color: Colors.grey[500],
+                        size: 20,
+                      ),
+                      onPressed: () => setDialogState(() => obscurePassword = !obscurePassword),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: Colors.grey[300]!),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: Colors.grey[300]!),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: Colors.red[400]!, width: 1.5),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: isDeleting ? null : () => Navigator.pop(ctx),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          side: BorderSide(color: Colors.grey[300]!),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: Text(
+                          'İptal',
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: Colors.grey[700],
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: isDeleting
+                            ? null
+                            : () async {
+                                final password = passwordController.text.trim();
+                                if (password.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Lütfen şifrenizi girin')),
+                                  );
+                                  return;
+                                }
+                                setDialogState(() => isDeleting = true);
+                                try {
+                                  await _apiService.deleteAccount(password: password);
+                                  if (ctx.mounted) Navigator.pop(ctx);
+                                  if (mounted) {
+                                    await context.read<AuthProvider>().logout();
+                                    if (context.mounted) {
+                                      Navigator.pushAndRemoveUntil(
+                                        context,
+                                        MaterialPageRoute(builder: (_) => const LoginScreen()),
+                                        (route) => false,
+                                      );
+                                    }
+                                  }
+                                } catch (e) {
+                                  setDialogState(() => isDeleting = false);
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(e.toString().replaceAll('Exception: ', '')),
+                                        backgroundColor: Colors.red[600],
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          backgroundColor: Colors.red[600],
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: isDeleting
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Hesabı Sil',
+                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    passwordController.dispose();
   }
 
   void _showComingSoon(BuildContext context) {

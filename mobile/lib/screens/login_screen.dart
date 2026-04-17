@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import 'home_screen.dart';
 import 'register_screen.dart';
+import 'forgot_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -37,8 +38,8 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response['message'] ?? 'Giriş başarısız. Lütfen bilgilerinizi kontrol edin.'),
+          const SnackBar(
+            content: Text('Email veya şifre hatalı'),
             backgroundColor: Colors.red,
           ),
         );
@@ -158,7 +159,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     alignment: Alignment.centerRight,
                     child: TextButton(
                       onPressed: () {
-                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Şifre yenileme özelliği yakında eklenecek')));
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
+                        );
                       },
                       child: Text('Şifremi Unuttum?', style: TextStyle(color: Colors.orange[800], fontWeight: FontWeight.bold)),
                     ),
@@ -176,7 +180,14 @@ class _LoginScreenState extends State<LoginScreen> {
                         elevation: 2,
                       ),
                       child: _isLoading
-                          ? const CircularProgressIndicator(color: Colors.white)
+                          ? const SizedBox(
+                              height: 24,
+                              width: 24,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2.5,
+                              ),
+                            )
                           : const Text('Giriş Yap', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                     ),
                   ),

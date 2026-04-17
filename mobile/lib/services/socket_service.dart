@@ -96,6 +96,27 @@ class SocketService {
     _notificationListeners.remove(callback);
   }
 
+  int notificationCount = 0;
+  final List<Function(int)> _notificationCountListeners = [];
+
+  void addNotificationCountListener(Function(int) callback) {
+    _notificationCountListeners.add(callback);
+  }
+
+  void removeNotificationCountListener(Function(int) callback) {
+    _notificationCountListeners.remove(callback);
+  }
+
+  void _notifyNotificationCountListeners() {
+    for (var listener in _notificationCountListeners) {
+      listener(notificationCount);
+    }
+  }
+
+  void notifyNotificationCountListeners() {
+    _notifyNotificationCountListeners();
+  }
+
   Future<void> init(String userId) async {
     if (_isInitializing) return;
 
@@ -130,6 +151,10 @@ class SocketService {
         try {
           final apiService = ApiService();
           await apiService.markMessagesAsDelivered();
+          
+          // Bildirim sayısını yükle
+          notificationCount = await apiService.getUnreadNotificationCount();
+          _notifyNotificationCountListeners();
         } catch (_) {
           // Ignore
         }
@@ -187,6 +212,18 @@ class SocketService {
         }
 
         _scheduleUnreadSync(optimisticIncrement: true);
+
+        for (var listener in _notificationListeners) {
+          listener(eventData);
+        }
+      });
+
+      socket!.on('new_notification', (data) {
+        final eventData = _normalizeEventData(data);
+        
+        // Bildirim sayısını artır
+        notificationCount++;
+        _notifyNotificationCountListeners();
 
         for (var listener in _notificationListeners) {
           listener(eventData);

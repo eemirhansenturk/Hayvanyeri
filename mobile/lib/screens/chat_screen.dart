@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +8,8 @@ import '../services/api_service.dart';
 import '../services/socket_service.dart';
 import '../providers/auth_provider.dart';
 import '../config/api_config.dart';
+import 'user_profile_screen.dart';
+import 'listing_detail_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final String listingId;
@@ -488,56 +490,139 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         elevation: 1,
         title: Row(
           children: [
-            CircleAvatar(
-              backgroundColor: Colors.green[100],
-              radius: 18,
-              backgroundImage: hasAvatar
-                  ? CachedNetworkImageProvider(avatarUrl)
-                  : null,
-              child: hasAvatar
-                  ? null
-                  : Text(
-                      widget.receiverName.isNotEmpty
-                          ? widget.receiverName[0].toUpperCase()
-                          : '?',
+            GestureDetector(
+              onTap: () {
+                if (widget.receiverId.isNotEmpty) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => UserProfileScreen(
+                        userId: widget.receiverId,
+                        userName: widget.receiverName,
+                      ),
+                    ),
+                  );
+                }
+              },
+              child: CircleAvatar(
+                backgroundColor: Colors.green[100],
+                radius: 18,
+                backgroundImage: hasAvatar
+                    ? CachedNetworkImageProvider(avatarUrl)
+                    : null,
+                child: hasAvatar
+                    ? null
+                    : Text(
+                        widget.receiverName.isNotEmpty
+                            ? widget.receiverName[0].toUpperCase()
+                            : '?',
+                        style: TextStyle(
+                          color: Colors.green[800],
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    widget.receiverName,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  GestureDetector(
+                    onTap: () {
+                      if (widget.listingId.isNotEmpty) {
+                        Navigator.push(
+                          context,
+                          PageRouteBuilder(
+                            opaque: false,
+                            pageBuilder: (context, animation, secondaryAnimation) =>
+                                ListingDetailScreen(listingId: widget.listingId),
+                            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                              return FadeTransition(opacity: animation, child: child);
+                            },
+                          ),
+                        );
+                      }
+                    },
+                    child: Text(
+                      (widget.listingTitle ?? '').trim().isNotEmpty
+                          ? widget.listingTitle!.trim()
+                          : 'Satıcı',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Colors.green[800],
+                        fontSize: 12,
+                        color: Colors.green[600],
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.receiverName,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
                   ),
-                ),
-                Text(
-                  (widget.listingTitle ?? '').trim().isNotEmpty
-                      ? widget.listingTitle!.trim()
-                      : 'Satıcı',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                    fontWeight: FontWeight.normal,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
         actions: [
-          IconButton(
+          PopupMenuButton<String>(
             icon: Icon(Icons.more_vert, color: Colors.grey[800]),
-            onPressed: () {},
+            onSelected: (value) {
+              if (value == 'profile' && widget.receiverId.isNotEmpty) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => UserProfileScreen(
+                      userId: widget.receiverId,
+                      userName: widget.receiverName,
+                    ),
+                  ),
+                );
+              } else if (value == 'listing' && widget.listingId.isNotEmpty) {
+                Navigator.push(
+                  context,
+                  PageRouteBuilder(
+                    opaque: false,
+                    pageBuilder: (context, animation, secondaryAnimation) =>
+                        ListingDetailScreen(listingId: widget.listingId),
+                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                      return FadeTransition(opacity: animation, child: child);
+                    },
+                  ),
+                );
+              }
+            },
+            itemBuilder: (BuildContext context) => [
+              const PopupMenuItem<String>(
+                value: 'profile',
+                child: Row(
+                  children: [
+                    Icon(Icons.person, size: 20, color: Colors.green),
+                    SizedBox(width: 8),
+                    Text('Profil detaylarını gör'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'listing',
+                child: Row(
+                  children: [
+                    Icon(Icons.pets, size: 20, color: Colors.green),
+                    SizedBox(width: 8),
+                    Text('İlanı Görüntüle'),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -656,7 +741,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Widget _buildInputBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: EdgeInsets.only(
+        left: 12,
+        right: 12,
+        top: 10,
+        bottom: 10 + MediaQuery.paddingOf(context).bottom,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -667,56 +757,51 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
         ],
       ),
-      child: SafeArea(
-        child: Row(
-          children: [
-            IconButton(
-              icon: Icon(Icons.add_circle_outline,
-                  color: Colors.grey[500], size: 28),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text('Dosya gönderme yakında eklenecek')),
-                );
-              },
-            ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _messageController,
+              textCapitalization: TextCapitalization.sentences,
+              keyboardType: TextInputType.multiline,
+              maxLines: 4,
+              minLines: 1,
+              decoration: InputDecoration(
+                hintText: 'Bir mesaj yazın...',
+                hintStyle: TextStyle(color: Colors.grey[500]),
+                filled: true,
+                fillColor: const Color(0xFFF0F2F5),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: Colors.grey[300]!),
+                  borderSide: BorderSide(color: Colors.grey[300]!),
                 ),
-                child: TextField(
-                  controller: _messageController,
-                  textCapitalization: TextCapitalization.sentences,
-                  keyboardType: TextInputType.multiline,
-                  maxLines: 4,
-                  minLines: 1,
-                  decoration: const InputDecoration(
-                    hintText: 'Bir mesaj yazın...',
-                    hintStyle: TextStyle(color: Colors.grey),
-                    border: InputBorder.none,
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: BorderSide(color: Colors.grey[300]!),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: BorderSide(color: Colors.green[400]!, width: 1.5),
                 ),
               ),
             ),
-            const SizedBox(width: 8),
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.green[600],
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                onPressed: _sendMessage,
-                icon: const Icon(Icons.send, color: Colors.white, size: 20),
-              ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            height: 48,
+            width: 48,
+            decoration: BoxDecoration(
+              color: Colors.green[600],
+              shape: BoxShape.circle,
             ),
-          ],
-        ),
+            child: IconButton(
+              onPressed: _sendMessage,
+              icon: const Icon(Icons.send, color: Colors.white, size: 20),
+            ),
+          ),
+        ],
       ),
     );
   }

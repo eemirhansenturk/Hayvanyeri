@@ -1,7 +1,10 @@
-﻿const express = require('express');
+const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 const Message = require('../models/Message');
+const Notification = require('../models/Notification');
+const Listing = require('../models/Listing');
+const User = require('../models/User');
 const auth = require('../middleware/auth');
 
 function getActiveSocketId(req, userId) {
@@ -26,13 +29,13 @@ router.get('/unread-count', auth, async (req, res) => {
   try {
     const count = await Message.countDocuments({
       receiver: req.userId,
-      read: false
+      read: false,
+      deletedBy: { $ne: req.userId }
     });
 
     res.json({ count });
   } catch (error) {
-    console.error('Unread count error:', error);
-    res.status(500).json({ message: 'Sayi alinamadi', error: error.message });
+    res.status(500).json({ message: 'Sayi alinamadi' });
   }
 });
 
@@ -43,7 +46,8 @@ router.post('/mark-delivered', auth, async (req, res) => {
 
     const undeliveredMessages = await Message.find({
       receiver: userId,
-      delivered: false
+      delivered: false,
+      deletedBy: { $ne: userId }
     }).select('sender listing').lean();
 
     if (undeliveredMessages.length > 0) {
@@ -83,8 +87,7 @@ router.post('/mark-delivered', auth, async (req, res) => {
 
     res.json({ success: true, count: undeliveredMessages.length });
   } catch (error) {
-    console.error('Mark delivered error:', error);
-    res.status(500).json({ message: 'Islem basarisiz', error: error.message });
+    res.status(500).json({ message: 'Islem basarisiz' });
   }
 });
 
@@ -98,6 +101,7 @@ router.get('/conversations', auth, async (req, res) => {
 
     const [aggregationResult] = await Message.aggregate([
       { $match: { $or: [{ sender: userId }, { receiver: userId }] } },
+      { $match: { deletedBy: { $ne: userId } } },
       { $match: { listing: { $exists: true, $ne: null } } },
       {
         $addFields: {
@@ -173,8 +177,7 @@ router.get('/conversations', auth, async (req, res) => {
       limit
     });
   } catch (error) {
-    console.error('Conversations error:', error);
-    res.status(500).json({ message: 'Konusmalar getirilemedi', error: error.message });
+    res.status(500).json({ message: 'Konusmalar getirilemedi' });
   }
 });
 
@@ -186,6 +189,7 @@ router.get('/:listingId/:otherUserId', auth, async (req, res) => {
 
     const total = await Message.countDocuments({
       listing: req.params.listingId,
+      deletedBy: { $ne: req.userId },
       $or: [
         { sender: req.userId, receiver: req.params.otherUserId },
         { sender: req.params.otherUserId, receiver: req.userId }
@@ -197,6 +201,7 @@ router.get('/:listingId/:otherUserId', auth, async (req, res) => {
 
     const messages = await Message.find({
       listing: req.params.listingId,
+      deletedBy: { $ne: req.userId },
       $or: [
         { sender: req.userId, receiver: req.params.otherUserId },
         { sender: req.params.otherUserId, receiver: req.userId }
@@ -267,8 +272,7 @@ router.get('/:listingId/:otherUserId', auth, async (req, res) => {
       limit
     });
   } catch (error) {
-    console.error('Get messages error:', error);
-    res.status(500).json({ message: 'Mesajlar getirilemedi', error: error.message });
+    res.status(500).json({ message: 'Mesajlar getirilemedi' });
   }
 });
 
@@ -322,10 +326,95 @@ router.post('/', auth, async (req, res) => {
       }
     }
 
+    // Mesaj bildirimi oluştur (ilan sahibine) - Sadece yanıt alınmamışsa
+    try {
+      const listingDoc = await Listing.findById(listing).lean();
+      const senderUser = await User.findById(req.userId).lean();
+      
+      if (listingDoc && String(listingDoc.user) === String(receiver)) {
+        // Son mesajları kontrol et - receiver'dan sender'a yanıt var mı?
+        const lastMessages = await Message.find({
+          listing: listing,
+          $or: [
+            { sender: req.userId, receiver: receiver },
+            { sender: receiver, receiver: req.userId }
+          ]
+        })
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean();
+
+        // Sender'ın son mesajından sonra receiver'dan yanıt gelmiş mi kontrol et
+        let shouldCreateNotification = true;
+        let foundCurrentSenderMessage = false;
+
+        for (const msg of lastMessages) {
+          const msgSender = String(msg.sender);
+          const msgReceiver = String(msg.receiver);
+          
+          // Mevcut mesajı atla
+          if (String(msg._id) === String(message._id)) {
+            foundCurrentSenderMessage = true;
+            continue;
+          }
+
+          // Eğer receiver'dan sender'a bir mesaj varsa, bildirim gönder
+          if (msgSender === String(receiver) && msgReceiver === String(req.userId)) {
+            shouldCreateNotification = true;
+            break;
+          }
+
+          // Eğer sender'dan receiver'a daha önceki bir mesaj varsa ve araya receiver'dan yanıt girmemişse
+          if (msgSender === String(req.userId) && msgReceiver === String(receiver)) {
+            shouldCreateNotification = false;
+            break;
+          }
+        }
+
+        // Okunmamış mesaj bildirimi var mı kontrol et
+        const existingNotification = await Notification.findOne({
+          user: receiver,
+          type: 'message',
+          listing: listing,
+          relatedUser: req.userId,
+          read: false
+        }).lean();
+
+        // Eğer okunmamış bildirim varsa yeni bildirim oluşturma
+        if (existingNotification) {
+          shouldCreateNotification = false;
+        }
+
+        if (shouldCreateNotification) {
+          await Notification.create({
+            user: receiver,
+            type: 'message',
+            title: 'Yeni Mesaj 💬',
+            message: `${senderUser.name} kullanıcısı "${listingDoc.title}" adlı ilanınız için size mesaj attı.`,
+            listing: listing,
+            relatedUser: req.userId
+          });
+
+          // Socket ile bildirim gönder
+          if (io && userSockets) {
+            const socketId = userSockets.get(String(receiver));
+            if (socketId && io.sockets.sockets.has(socketId)) {
+              io.to(socketId).emit('new_notification', {
+                type: 'message',
+                title: 'Yeni Mesaj 💬',
+                message: `${senderUser.name} kullanıcısı "${listingDoc.title}" adlı ilanınız için size mesaj attı.`
+              });
+            }
+          }
+        }
+      }
+    } catch (notifError) {
+      // Silent error
+    }
+
     res.status(201).json(message);
   } catch (error) {
-    console.error('Send message error:', error);
-    res.status(500).json({ message: 'Mesaj gonderilemedi', error: error.message });
+    res.status(500).json({ message: 'Mesaj gonderilemedi' });
   }
 });
 
@@ -358,8 +447,53 @@ router.put('/read/:listingId/:otherUserId', auth, async (req, res) => {
 
     res.json({ success: true, count: result.modifiedCount });
   } catch (error) {
-    console.error('Mark read error:', error);
-    res.status(500).json({ message: 'Islem basarisiz', error: error.message });
+    res.status(500).json({ message: 'Islem basarisiz' });
+  }
+});
+
+// Delete all messages with a user (soft delete for the current user)
+router.delete('/user/:otherUserId', auth, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const otherUserId = req.params.otherUserId;
+
+    await Message.updateMany(
+      {
+        $or: [
+          { sender: userId, receiver: otherUserId },
+          { sender: otherUserId, receiver: userId }
+        ]
+      },
+      { $addToSet: { deletedBy: userId } }
+    );
+
+    res.json({ success: true, message: 'Kullanıcıyla olan tüm konuşmalar silindi' });
+  } catch (error) {
+    res.status(500).json({ message: 'Konuşmalar silinemedi' });
+  }
+});
+
+// Delete conversation with a user for a specific listing (soft delete for current user)
+router.delete('/listing/:listingId/user/:otherUserId', auth, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const listingId = req.params.listingId;
+    const otherUserId = req.params.otherUserId;
+
+    await Message.updateMany(
+      {
+        listing: listingId,
+        $or: [
+          { sender: userId, receiver: otherUserId },
+          { sender: otherUserId, receiver: userId }
+        ]
+      },
+      { $addToSet: { deletedBy: userId } }
+    );
+
+    res.json({ success: true, message: 'İlanla ilgili konuşma silindi' });
+  } catch (error) {
+    res.status(500).json({ message: 'Konuşmalar silinemedi' });
   }
 });
 

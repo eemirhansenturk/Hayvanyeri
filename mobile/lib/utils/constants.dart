@@ -1,7 +1,7 @@
 class AppConstants {
   // Kategoriler ve hayvan türleri
   static const Map<String, List<String>> categoryAnimals = {
-    'büyükbaş': ['İnek', 'Manda', 'At', 'Eşek', 'Katır', 'Deve', 'Dana'],
+    'büyükbaş': ['İnek', 'Manda', 'At', 'Eşek', 'Katır', 'Deve'],
     'küçükbaş': ['Koyun', 'Keçi', 'Kuzu', 'Oğlak'],
     'kanatlı': ['Tavuk', 'Horoz', 'Ördek', 'Kaz', 'Hindi', 'Güvercin', 'Bıldırcın'],
     'evcil': ['Köpek', 'Kedi', 'Tavşan', 'Kuş', 'Balık', 'Sürüngen', 'Diğer'],

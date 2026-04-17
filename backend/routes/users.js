@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
@@ -6,6 +6,7 @@ const fs = require('fs');
 const sharp = require('sharp');
 const User = require('../models/User');
 const Listing = require('../models/Listing');
+const Notification = require('../models/Notification');
 const auth = require('../middleware/auth');
 
 const avatarUploadDir = 'uploads/avatars/';
@@ -28,6 +29,28 @@ router.get('/profile', auth, async (req, res) => {
   }
 });
 
+// Diğer kullanıcı profilini ve aktif ilanlarını getir
+router.get('/:id/profile', auth, async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const user = await User.findById(userId).select('name email location avatar createdAt').lean();
+    if (!user) {
+      return res.status(404).json({ message: 'Kullanıcı bulunamadı' });
+    }
+
+    const activeListings = await Listing.find({ user: userId, status: 'aktif' })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json({
+      user,
+      listings: activeListings
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Kullanıcı verisi getirilemedi', error: error.message });
+  }
+});
+
 // Profil bilgilerini ve avatarı güncelle
 router.put('/profile', auth, upload.single('avatar'), async (req, res) => {
   try {
@@ -38,10 +61,10 @@ router.put('/profile', auth, upload.single('avatar'), async (req, res) => {
 
     const { name, phone, city, district } = req.body;
 
-    if (name != null && String(name).trim().isNotEmpty) {
+    if (name != null && String(name).trim().length > 0) {
       user.name = String(name).trim();
     }
-    if (phone != null && String(phone).trim().isNotEmpty) {
+    if (phone != null && String(phone).trim().length > 0) {
       user.phone = String(phone).trim();
     }
 
@@ -52,12 +75,24 @@ router.put('/profile', auth, upload.single('avatar'), async (req, res) => {
       district: nextDistrict || 'Belirtilmemis'
     };
 
-    if (req.file) {
+    if (req.body.removeAvatar === 'true' || req.body.removeAvatar === true) {
+      const oldAvatar = user.avatar;
+      user.avatar = '';
+      if (oldAvatar && oldAvatar.startsWith('avatars/')) {
+        const oldPath = path.join(__dirname, '../uploads', oldAvatar);
+        if (fs.existsSync(oldPath)) {
+          try {
+            fs.unlinkSync(oldPath);
+          } catch (_) {}
+        }
+      }
+    } else if (req.file) {
       const filename = `avatar-${req.userId}-${Date.now()}.webp`;
       const outputPath = path.join(avatarUploadDir, filename);
 
       await sharp(req.file.buffer)
-        .resize(900, 900, { fit: 'inside', withoutEnlargement: true })
+        .rotate() // EXIF orientation'a göre otomatik döndür
+        .resize(900, 900, { fit: 'cover', position: 'center' })
         .webp({ quality: 85 })
         .toFile(outputPath);
 
@@ -111,6 +146,11 @@ router.post('/favorites/:listingId', auth, async (req, res) => {
   try {
     const user = await User.findById(req.userId);
     const listingId = req.params.listingId;
+    const listing = await Listing.findById(listingId).lean();
+
+    if (!listing) {
+      return res.status(404).json({ message: 'İlan bulunamadı' });
+    }
 
     const isFavorited = user.favorites.includes(listingId);
 
@@ -118,6 +158,36 @@ router.post('/favorites/:listingId', auth, async (req, res) => {
       user.favorites.pull(listingId);
     } else {
       user.favorites.push(listingId);
+
+      // Favoriye eklendi bildirimi oluştur (kendi ilanı değilse)
+      if (String(listing.user) !== String(req.userId)) {
+        try {
+          await Notification.create({
+            user: listing.user,
+            type: 'favorite',
+            title: 'Yeni Favori ❤️',
+            message: `${user.name} kullanıcısı "${listing.title}" adlı ilanınızı favorilerine ekledi.`,
+            listing: listingId,
+            relatedUser: req.userId
+          });
+
+          // Socket ile bildirim gönder
+          const io = req.app.get('io');
+          const userSockets = req.app.get('userSockets');
+          if (io && userSockets) {
+            const socketId = userSockets.get(String(listing.user));
+            if (socketId && io.sockets.sockets.has(socketId)) {
+              io.to(socketId).emit('new_notification', {
+                type: 'favorite',
+                title: 'Yeni Favori ❤️',
+                message: `${user.name} kullanıcısı "${listing.title}" adlı ilanınızı favorilerine ekledi.`
+              });
+            }
+          }
+        } catch (notifError) {
+          // Silent error
+        }
+      }
     }
 
     await user.save();

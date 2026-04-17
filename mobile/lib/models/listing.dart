@@ -19,6 +19,7 @@ class Listing {
   final List<String> images;
   final String status;
   final int views;
+  final int favoriteCount;
   final DateTime createdAt;
 
   Listing({
@@ -42,6 +43,7 @@ class Listing {
     required this.images,
     required this.status,
     required this.views,
+    this.favoriteCount = 0,
     required this.createdAt,
   });
 
@@ -67,6 +69,7 @@ class Listing {
       images: List<String>.from(json['images'] ?? []),
       status: json['status'],
       views: json['views'] ?? 0,
+      favoriteCount: json['favoriteCount'] ?? 0,
       createdAt: DateTime.parse(json['createdAt']),
     );
   }

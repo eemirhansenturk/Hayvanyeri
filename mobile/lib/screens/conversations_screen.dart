@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -10,15 +10,16 @@ import '../services/socket_service.dart';
 import '../providers/auth_provider.dart';
 import '../config/api_config.dart';
 import 'chat_screen.dart';
+import 'user_profile_screen.dart';
 
 class ConversationsScreen extends StatefulWidget {
   const ConversationsScreen({super.key});
 
   @override
-  State<ConversationsScreen> createState() => _ConversationsScreenState();
+  State<ConversationsScreen> createState() => ConversationsScreenState();
 }
 
-class _ConversationsScreenState extends State<ConversationsScreen> {
+class ConversationsScreenState extends State<ConversationsScreen> {
   final ApiService _apiService = ApiService();
   final ScrollController _scrollController = ScrollController();
 
@@ -38,6 +39,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   bool _isRefreshingFirstPage = false;
   bool _queuedRefresh = false;
   final Set<String> _expandedUserIds = <String>{};
+  final Set<String> _selectedItems = <String>{};
 
   late final Function(Map<String, dynamic>) _messageReceivedListener;
   late final Function(Map<String, dynamic>) _notificationListener;
@@ -102,6 +104,10 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   void _scheduleRefreshFirstPage() {
     _refreshTimer?.cancel();
     _refreshTimer = Timer(const Duration(milliseconds: 250), _refreshFirstPage);
+  }
+
+  void refreshList() {
+    _scheduleRefreshFirstPage();
   }
 
   /// Scroll'u bozmadan sadece listeyi gÃ¼nceller
@@ -311,6 +317,120 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     return groups;
   }
 
+  void _clearSelection() {
+    setState(() {
+      _selectedItems.clear();
+    });
+  }
+
+  void _toggleSelection(String id) {
+    setState(() {
+      if (_selectedItems.contains(id)) {
+        _selectedItems.remove(id);
+      } else {
+        _selectedItems.add(id);
+      }
+    });
+  }
+
+  Future<void> _deleteSelectedItems() async {
+    if (_selectedItems.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.delete_sweep, color: Colors.red[700], size: 36),
+              ),
+              const SizedBox(height: 16),
+              const Text('Mesajları Sil', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text(
+                '${_selectedItems.length} adet sohbeti silmek istiyor musunuz? İşlem geri alınamaz.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, color: Colors.grey[700], height: 1.4),
+              ),
+              const SizedBox(height: 28),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: BorderSide(color: Colors.grey[300]!),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text('İptal', style: TextStyle(fontSize: 16, color: Colors.grey[700], fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: Colors.red[600],
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Sil', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Siliniyor...')),
+      );
+
+      final futures = <Future>[];
+      for (final id in _selectedItems) {
+        if (id.startsWith('user_')) {
+          final otherUserId = id.substring(5);
+          futures.add(_apiService.deleteConversationsWithUser(otherUserId));
+        } else if (id.startsWith('listing_')) {
+          final parts = id.substring(8).split('_user_');
+          if (parts.length == 2) {
+            futures.add(_apiService.deleteListingConversationWithUser(parts[0], parts[1]));
+          }
+        }
+      }
+
+      await Future.wait(futures);
+
+      _clearSelection();
+      _loadConversations();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: ${e.toString().replaceAll('Exception: ', '')}')),
+        );
+      }
+    }
+  }
+
   void _openChatFromMessage(Map<String, dynamic> message, String? currentUserId) {
     final listing = message['listing'];
     if (listing is! Map) return;
@@ -347,6 +467,8 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     final otherUserAvatar = (otherUser['avatar'] ?? '').toString().trim();
     final unreadCount = _groupUnreadCount(group, currentUserId);
     final isExpanded = otherUserId.isNotEmpty && _expandedUserIds.contains(otherUserId);
+    final userIdStr = 'user_$otherUserId';
+    final isUserSelected = _selectedItems.contains(userIdStr);
 
     final avatarUrl = otherUserAvatar.isNotEmpty
         ? '${ApiConfig.uploadsUrl}/$otherUserAvatar'
@@ -355,15 +477,18 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isUserSelected ? Colors.green.withValues(alpha: 0.15) : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        boxShadow: isUserSelected
+            ? []
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+        border: isUserSelected ? Border.all(color: Colors.green, width: 2) : Border.all(color: Colors.transparent, width: 2),
       ),
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -373,6 +498,10 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
               borderRadius: BorderRadius.circular(12),
               onTap: () {
                 if (otherUserId.isEmpty) return;
+                if (_selectedItems.isNotEmpty) {
+                  _toggleSelection(userIdStr);
+                  return;
+                }
                 setState(() {
                   if (isExpanded) {
                     _expandedUserIds.remove(otherUserId);
@@ -381,29 +510,50 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                   }
                 });
               },
+              onLongPress: () {
+                if (otherUserId.isEmpty) return;
+                _toggleSelection(userIdStr);
+              },
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 2),
                 child: Row(
                   children: [
-                    CircleAvatar(
-                      radius: 24,
-                      backgroundColor: Colors.grey[200],
-                      backgroundImage: avatarUrl.isNotEmpty
-                          ? ResizeImage(
-                              CachedNetworkImageProvider(avatarUrl, cacheKey: avatarUrl),
-                              width: 96,
-                              height: 96,
-                            )
-                          : null,
-                      child: avatarUrl.isEmpty
-                          ? Text(
-                              otherUserName.isNotEmpty ? otherUserName[0].toUpperCase() : '?',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.green[800],
+                    Stack(
+                      children: [
+                        CircleAvatar(
+                          radius: 24,
+                          backgroundColor: Colors.grey[200],
+                          backgroundImage: avatarUrl.isNotEmpty
+                              ? ResizeImage(
+                                  CachedNetworkImageProvider(avatarUrl, cacheKey: avatarUrl),
+                                  width: 96,
+                                  height: 96,
+                                )
+                              : null,
+                          child: avatarUrl.isEmpty
+                              ? Text(
+                                  otherUserName.isNotEmpty ? otherUserName[0].toUpperCase() : '?',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green[800],
+                                  ),
+                                )
+                              : null,
+                        ),
+                        if (isUserSelected)
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: const BoxDecoration(
+                                color: Colors.green,
+                                shape: BoxShape.circle,
                               ),
-                            )
-                          : null,
+                              child: const Icon(Icons.check, size: 14, color: Colors.white),
+                            ),
+                          ),
+                      ],
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -414,24 +564,73 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                     ),
                     if (unreadCount > 0)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.all(6),
+                        constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
                         decoration: BoxDecoration(
                           color: Colors.green[600],
-                          borderRadius: BorderRadius.circular(12),
+                          shape: BoxShape.circle,
                         ),
-                        child: Text(
-                          '$unreadCount',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
+                        child: Center(
+                          child: Text(
+                            '$unreadCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              height: 1.0,
+                            ),
                           ),
                         ),
                       ),
-                    const SizedBox(width: 6),
-                    Icon(
-                      isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
-                      color: Colors.grey[700],
+                    const SizedBox(width: 8),
+                    PopupMenuButton<String>(
+                      icon: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(Icons.more_horiz, color: Colors.grey[700], size: 20),
+                      ),
+                      padding: EdgeInsets.zero,
+                      onSelected: (value) {
+                        if (value == 'profile' && otherUserId.isNotEmpty) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => UserProfileScreen(
+                                userId: otherUserId,
+                                userName: otherUserName,
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                      itemBuilder: (BuildContext context) => [
+                        const PopupMenuItem<String>(
+                          value: 'profile',
+                          child: Row(
+                            children: [
+                              Icon(Icons.person, size: 20, color: Colors.green),
+                              SizedBox(width: 8),
+                              Text('Profil detaylarını gör'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        isExpanded ? Icons.expand_less : Icons.expand_more,
+                        color: Colors.grey[700],
+                        size: 20,
+                      ),
                     ),
                   ],
                 ),
@@ -447,22 +646,42 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                 final threadUnreadCount = _threadUnreadCount(thread, currentUserId);
                 final isUnread = threadUnreadCount > 0;
                 final createdAt = (thread['createdAt'] ?? '').toString();
-                final previewText = '${isMeSender ? "Siz: " : ""}${thread['content'] ?? ''}';
+                final previewText = '${isMeSender ? "Siz: " : "O: "}${thread['content'] ?? ''}';
+                final threadIdStr = 'listing_${(listing?['_id'] ?? '')}_user_$otherUserId';
+                final isThreadSelected = _selectedItems.contains(threadIdStr);
 
                 return InkWell(
-                  onTap: () => _openChatFromMessage(thread, currentUserId),
+                  onTap: () {
+                    if (_selectedItems.isNotEmpty) {
+                      _toggleSelection(threadIdStr);
+                      return;
+                    }
+                    _openChatFromMessage(thread, currentUserId);
+                  },
+                  onLongPress: () {
+                     final lId = (listing?['_id'] ?? '').toString();
+                     if (lId.isEmpty || otherUserId.isEmpty) return;
+                     _toggleSelection(threadIdStr);
+                  },
                   borderRadius: BorderRadius.circular(10),
                   child: Container(
                     margin: const EdgeInsets.only(top: 8),
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
                     decoration: BoxDecoration(
-                      color: isUnread
-                          ? Colors.green.withValues(alpha: 0.08)
-                          : Colors.grey.withValues(alpha: 0.06),
+                      color: isThreadSelected
+                          ? Colors.green.withValues(alpha: 0.15)
+                          : isUnread
+                              ? Colors.green.withValues(alpha: 0.08)
+                              : Colors.grey.withValues(alpha: 0.06),
                       borderRadius: BorderRadius.circular(10),
+                      border: isThreadSelected ? Border.all(color: Colors.green, width: 1.5) : Border.all(color: Colors.transparent, width: 1.5),
                     ),
                     child: Row(
                       children: [
+                        if (isThreadSelected) ...[
+                          const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                          const SizedBox(width: 8),
+                        ],
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -609,13 +828,40 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     final currentUserId = authProvider.user?['_id'] ?? authProvider.user?['id'];
     final groupedConversations = _buildConversationGroups(currentUserId?.toString());
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mesajlar', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.green[700],
-        iconTheme: const IconThemeData(color: Colors.white),
-      ),
-      body: _isLoading
+    return WillPopScope(
+      onWillPop: () async {
+        if (_selectedItems.isNotEmpty) {
+          _clearSelection();
+          return false;
+        }
+        return true;
+      },
+      child: Scaffold(
+        appBar: _selectedItems.isNotEmpty
+            ? AppBar(
+                backgroundColor: Colors.green[700],
+                iconTheme: const IconThemeData(color: Colors.white),
+                leading: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: _clearSelection,
+                ),
+                title: Text(
+                  '${_selectedItems.length} seçildi',
+                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.delete),
+                    onPressed: _deleteSelectedItems,
+                  ),
+                ],
+              )
+            : AppBar(
+                title: const Text('Mesajlar', style: TextStyle(color: Colors.white)),
+                backgroundColor: Colors.green[700],
+                iconTheme: const IconThemeData(color: Colors.white),
+              ),
+        body: _isLoading
           ? _buildSkeletonList()
           : groupedConversations.isEmpty
               ? _buildEmpty()
@@ -638,6 +884,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                     },
                   ),
                 ),
+      ),
     );
   }
 

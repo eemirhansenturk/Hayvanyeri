@@ -1,7 +1,69 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import 'home_screen.dart';
+
+// Türkçe karakterleri destekleyen Title Case formatter
+class TurkishTitleCaseFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    if (newValue.text.isEmpty) {
+      return newValue;
+    }
+
+    // Türkçe karakterler için özel haritalama
+    String toUpperCaseTurkish(String char) {
+      const turkishLowerToUpper = {
+        'i': 'İ',
+        'ı': 'I',
+        'ş': 'Ş',
+        'ğ': 'Ğ',
+        'ü': 'Ü',
+        'ö': 'Ö',
+        'ç': 'Ç',
+      };
+      return turkishLowerToUpper[char] ?? char.toUpperCase();
+    }
+
+    String toLowerCaseTurkish(String char) {
+      const turkishUpperToLower = {
+        'İ': 'i',
+        'I': 'ı',
+        'Ş': 'ş',
+        'Ğ': 'ğ',
+        'Ü': 'ü',
+        'Ö': 'ö',
+        'Ç': 'ç',
+      };
+      return turkishUpperToLower[char] ?? char.toLowerCase();
+    }
+
+    final words = newValue.text.split(' ');
+    final formattedWords = words.map((word) {
+      if (word.isEmpty) return word;
+      
+      final firstChar = toUpperCaseTurkish(word[0]);
+      if (word.length == 1) return firstChar;
+      
+      final restChars = word.substring(1).split('').map((char) {
+        return toLowerCaseTurkish(char);
+      }).join('');
+      
+      return firstChar + restChars;
+    }).toList();
+
+    final formattedText = formattedWords.join(' ');
+
+    return TextEditingValue(
+      text: formattedText,
+      selection: TextSelection.collapsed(offset: formattedText.length),
+    );
+  }
+}
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -97,9 +159,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   // Name Field
                   TextFormField(
                     controller: _nameController,
+                    maxLength: 30,
+                    inputFormatters: [
+                      TurkishTitleCaseFormatter(),
+                    ],
                     decoration: InputDecoration(
                       labelText: 'Ad Soyad',
                       hintText: 'Ahmet Yılmaz',
+                      counterText: '',
                       prefixIcon: Icon(Icons.person_outline, color: Colors.green[700]),
                       filled: true,
                       fillColor: Colors.grey[50],
@@ -117,7 +184,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                     validator: (value) {
-                      if (value == null || value.trim().isEmpty) return 'Lütfen ad ve soyad girin';
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Lütfen ad ve soyad girin';
+                      }
+                      if (value.trim().length < 2) {
+                        return 'Ad soyad en az 2 karakter olmalı';
+                      }
+                      if (value.trim().length > 30) {
+                        return 'Ad soyad en fazla 30 karakter olabilir';
+                      }
                       return null;
                     },
                   ),
@@ -147,8 +222,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) return 'Lütfen e-posta girin';
-                      if (!value.contains('@')) return 'Geçerli bir e-posta girin';
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Lütfen e-posta girin';
+                      }
+                      // E-posta regex deseni
+                      final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+                      if (!emailRegex.hasMatch(value.trim())) {
+                        return 'Geçerli bir e-posta adresi girin';
+                      }
                       return null;
                     },
                   ),
@@ -158,9 +239,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   TextFormField(
                     controller: _phoneController,
                     keyboardType: TextInputType.phone,
+                    maxLength: 11,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                    ],
                     decoration: InputDecoration(
                       labelText: 'Telefon Numarası',
-                      hintText: '05XX XXX XX XX',
+                      hintText: '5XXXXXXXXX',
+                      counterText: '',
                       prefixIcon: Icon(Icons.phone_outlined, color: Colors.green[700]),
                       filled: true,
                       fillColor: Colors.grey[50],
@@ -178,8 +264,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                     validator: (value) {
-                      if (value == null || value.trim().isEmpty) return 'Lütfen telefon numarası girin';
-                      if (value.replaceAll(' ', '').length < 10) return 'Geçerli bir telefon numarası girin';
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Lütfen telefon numarası girin';
+                      }
+                      final length = value.trim().length;
+                      if (length < 10) {
+                        return 'Telefon numarası en az 10 rakam olmalı';
+                      }
+                      if (length > 11) {
+                        return 'Telefon numarası en fazla 11 rakam olabilir';
+                      }
                       return null;
                     },
                   ),
@@ -234,7 +328,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         elevation: 2,
                       ),
                       child: _isLoading
-                          ? const CircularProgressIndicator(color: Colors.white)
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2.5,
+                              ),
+                            )
                           : const Text('Kayıt Ol', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                     ),
                   ),

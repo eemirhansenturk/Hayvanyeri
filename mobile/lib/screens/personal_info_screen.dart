@@ -1,13 +1,75 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../config/api_config.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
+
+// Türkçe karakterleri destekleyen Title Case formatter
+class TurkishTitleCaseFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    if (newValue.text.isEmpty) {
+      return newValue;
+    }
+
+    // Türkçe karakterler için özel haritalama
+    String toUpperCaseTurkish(String char) {
+      const turkishLowerToUpper = {
+        'i': 'İ',
+        'ı': 'I',
+        'ş': 'Ş',
+        'ğ': 'Ğ',
+        'ü': 'Ü',
+        'ö': 'Ö',
+        'ç': 'Ç',
+      };
+      return turkishLowerToUpper[char] ?? char.toUpperCase();
+    }
+
+    String toLowerCaseTurkish(String char) {
+      const turkishUpperToLower = {
+        'İ': 'i',
+        'I': 'ı',
+        'Ş': 'ş',
+        'Ğ': 'ğ',
+        'Ü': 'ü',
+        'Ö': 'ö',
+        'Ç': 'ç',
+      };
+      return turkishUpperToLower[char] ?? char.toLowerCase();
+    }
+
+    final words = newValue.text.split(' ');
+    final formattedWords = words.map((word) {
+      if (word.isEmpty) return word;
+      
+      final firstChar = toUpperCaseTurkish(word[0]);
+      if (word.length == 1) return firstChar;
+      
+      final restChars = word.substring(1).split('').map((char) {
+        return toLowerCaseTurkish(char);
+      }).join('');
+      
+      return firstChar + restChars;
+    }).toList();
+
+    final formattedText = formattedWords.join(' ');
+
+    return TextEditingValue(
+      text: formattedText,
+      selection: TextSelection.collapsed(offset: formattedText.length),
+    );
+  }
+}
 
 class PersonalInfoScreen extends StatefulWidget {
   const PersonalInfoScreen({super.key});
@@ -204,14 +266,21 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
 
     setState(() => _isSaving = true);
     try {
-      await _apiService.updateProfile(
+      final updatedUser = await _apiService.updateProfile(
         name: _nameController.text.trim(),
         phone: _phoneController.text.trim(),
         city: _selectedCityName,
         district: _selectedDistrictName,
       );
       await context.read<AuthProvider>().refreshProfile();
+      
       if (!mounted) return;
+      
+      // Controller'ları güncellenen verilerle yeniden doldur
+      final user = context.read<AuthProvider>().user ?? updatedUser;
+      _nameController.text = (user['name'] ?? '').toString();
+      _phoneController.text = (user['phone'] ?? '').toString();
+      
       setState(() => _isEditing = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Bilgiler güncellendi')),
@@ -305,13 +374,35 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
               TextFormField(
                 controller: _nameController,
                 enabled: _isEditing,
-                decoration: const InputDecoration(
+                maxLength: 30,
+                inputFormatters: [
+                  TurkishTitleCaseFormatter(),
+                ],
+                decoration: InputDecoration(
                   labelText: 'Ad Soyad',
-                  border: OutlineInputBorder(),
+                  counterText: '',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  disabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) {
                     return 'Ad soyad zorunlu';
+                  }
+                  if (v.trim().length < 2) {
+                    return 'Ad soyad en az 2 karakter olmalı';
+                  }
+                  if (v.trim().length > 30) {
+                    return 'Ad soyad en fazla 30 karakter olabilir';
                   }
                   return null;
                 },
@@ -320,9 +411,20 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
               TextFormField(
                 initialValue: _email,
                 enabled: false,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'E-posta (Değiştirilemez)',
-                  border: OutlineInputBorder(),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  disabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -330,10 +432,35 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                 controller: _phoneController,
                 enabled: _isEditing,
                 keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(
+                maxLength: 11,
+                decoration: InputDecoration(
                   labelText: 'Telefon',
-                  border: OutlineInputBorder(),
+                  counterText: '',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  disabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
+                validator: (v) {
+                  if (v != null && v.trim().isNotEmpty) {
+                    final length = v.trim().length;
+                    if (length < 10) {
+                      return 'Telefon numarası en az 10 karakter olmalı';
+                    }
+                    if (length > 11) {
+                      return 'Telefon numarası en fazla 11 karakter olabilir';
+                    }
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 12),
               _isLoadingCities
@@ -341,9 +468,20 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   : DropdownButtonFormField<String>(
                       value: hasCityValue ? _selectedCityName : null,
                       isExpanded: true,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Şehir',
-                        border: OutlineInputBorder(),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        disabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       items: _cities.map((city) {
                         return DropdownMenuItem<String>(
@@ -372,9 +510,20 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   : DropdownButtonFormField<String>(
                       value: hasDistrictValue ? _selectedDistrictName : null,
                       isExpanded: true,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'İlçe',
-                        border: OutlineInputBorder(),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        disabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       items: _districts.map((district) {
                         return DropdownMenuItem<String>(
@@ -390,16 +539,18 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                     ),
               const SizedBox(height: 20),
               SizedBox(
-                height: 48,
+                height: 52,
                 child: ElevatedButton(
                   onPressed: _isSaving ? null : _onUpdatePressed,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green[700],
                     foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     textStyle: const TextStyle(
                       fontSize: 16,
-                      height: 1.25,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                   child: _isSaving

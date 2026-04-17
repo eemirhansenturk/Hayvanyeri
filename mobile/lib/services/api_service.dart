@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -292,6 +292,26 @@ class ApiService {
     }
   }
 
+  Future<void> deleteConversationsWithUser(String otherUserId) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/messages/user/$otherUserId'),
+      headers: await _getHeaders(needsAuth: true),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Konuşmalar silinemedi');
+    }
+  }
+
+  Future<void> deleteListingConversationWithUser(String listingId, String otherUserId) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/messages/listing/$listingId/user/$otherUserId'),
+      headers: await _getHeaders(needsAuth: true),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('İlan konuşması silinemedi');
+    }
+  }
+
   Future<void> changePassword({
     required String currentPassword,
     required String newPassword,
@@ -307,12 +327,15 @@ class ApiService {
 
     if (response.statusCode == 200) return;
 
+    String errorMessage = 'Şifre güncellenemedi';
     try {
       final error = jsonDecode(response.body);
-      throw Exception(error['message'] ?? 'Şifre güncellenemedi');
-    } catch (_) {
-      throw Exception('Şifre güncellenemedi');
-    }
+      if (error['message'] != null) {
+        errorMessage = error['message'];
+      }
+    } catch (_) {}
+    
+    throw Exception(errorMessage);
   }
 
   // User
@@ -324,12 +347,25 @@ class ApiService {
     return jsonDecode(response.body);
   }
 
+  Future<Map<String, dynamic>> getUserProfile(String userId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/users/$userId/profile'),
+      headers: await _getHeaders(needsAuth: true),
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Kullanıcı profili getirilemedi: ${response.body}');
+    }
+  }
+
   Future<Map<String, dynamic>> updateProfile({
     String? name,
     String? phone,
     String? city,
     String? district,
     File? avatarFile,
+    bool removeAvatar = false,
   }) async {
     try {
       final token = await _getToken();
@@ -346,7 +382,9 @@ class ApiService {
       if (city != null) request.fields['city'] = city;
       if (district != null) request.fields['district'] = district;
 
-      if (avatarFile != null) {
+      if (removeAvatar) {
+        request.fields['removeAvatar'] = 'true';
+      } else if (avatarFile != null) {
         request.files.add(
           await http.MultipartFile.fromPath('avatar', avatarFile.path),
         );
@@ -431,6 +469,90 @@ class ApiService {
 
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception('Destek talebi gonderilemedi: ${response.body}');
+    }
+  }
+
+  // Notifications
+  Future<Map<String, dynamic>> getNotifications({int page = 1, int limit = 20}) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/notifications?page=$page&limit=$limit'),
+      headers: await _getHeaders(needsAuth: true),
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Bildirimler getirilemedi: ${response.body}');
+    }
+  }
+
+  Future<int> getUnreadNotificationCount() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/notifications/unread-count'),
+        headers: await _getHeaders(needsAuth: true),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['count'] ?? 0;
+      }
+      return 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  Future<void> markNotificationAsRead(String notificationId) async {
+    await http.put(
+      Uri.parse('$baseUrl/notifications/$notificationId/read'),
+      headers: await _getHeaders(needsAuth: true),
+    );
+  }
+
+  Future<void> markAllNotificationsAsRead() async {
+    await http.put(
+      Uri.parse('$baseUrl/notifications/mark-all-read'),
+      headers: await _getHeaders(needsAuth: true),
+    );
+  }
+
+  Future<void> deleteNotification(String notificationId) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/notifications/$notificationId'),
+      headers: await _getHeaders(needsAuth: true),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Bildirim silinemedi: ${response.body}');
+    }
+  }
+
+  // Account deletion
+  Future<void> deleteAccount({required String password}) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$baseUrl/auth/delete-account'),
+        headers: await _getHeaders(needsAuth: true),
+        body: jsonEncode({'password': password}),
+      ).timeout(timeout);
+
+      if (response.statusCode == 200) return;
+
+      String errorMessage = 'Hesap silinemedi';
+      try {
+        final error = jsonDecode(response.body);
+        if (error['message'] != null) {
+          errorMessage = error['message'];
+        }
+      } catch (_) {}
+
+      throw Exception(errorMessage);
+    } on SocketException {
+      throw Exception('İnternet bağlantısı yok. Lütfen bağlantınızı kontrol edin.');
+    } on TimeoutException {
+      throw Exception('Bağlantı zaman aşımına uğradı. Lütfen tekrar deneyin.');
+    } on FormatException {
+      throw Exception('Sunucudan geçersiz yanıt alındı.');
+    } catch (e) {
+      throw Exception('Bağlantı hatası: ${e.toString().replaceAll('Exception: ', '')}');
     }
   }
 }

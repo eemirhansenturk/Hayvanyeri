@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/api_service.dart';
 import '../utils/constants.dart';
+import '../utils/formatters.dart';
 
 class AdvancedFilterSheet extends StatefulWidget {
   final Map<String, dynamic>? initialFilters;
@@ -17,8 +18,8 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
 
   // Cascade state
   String? _selectedCategory;
-  String? _selectedAnimalType;
-  String? _selectedBreed;
+  List<String> _selectedAnimalTypes = [];
+  List<String> _selectedBreeds = [];
 
   // Listing type
   String? _listingType; // null = tümü, 'satılık', 'sahiplendirme'
@@ -63,8 +64,12 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
     final f = widget.initialFilters;
     if (f == null) return;
     _selectedCategory = f['category'];
-    _selectedAnimalType = f['animalType'];
-    _selectedBreed = f['breed'];
+    if (f['animalType'] != null) {
+      _selectedAnimalTypes = f['animalType'].split(',').toList();
+    }
+    if (f['breed'] != null) {
+      _selectedBreeds = f['breed'].split(',').toList();
+    }
     _listingType = f['listingType'];
     _gender = f['gender'];
     _healthStatus = f['healthStatus'];
@@ -136,8 +141,8 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
     final Map<String, dynamic> filters = {};
 
     if (_selectedCategory != null) filters['category'] = _selectedCategory;
-    if (_selectedAnimalType != null) filters['animalType'] = _selectedAnimalType;
-    if (_selectedBreed != null) filters['breed'] = _selectedBreed;
+    if (_selectedAnimalTypes.isNotEmpty) filters['animalType'] = _selectedAnimalTypes.join(',');
+    if (_selectedBreeds.isNotEmpty) filters['breed'] = _selectedBreeds.join(',');
     if (_listingType != null) filters['listingType'] = _listingType;
     if (_gender != null) filters['gender'] = _gender;
     if (_healthStatus != null) filters['healthStatus'] = _healthStatus;
@@ -145,8 +150,8 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
     if (_maxAgeController.text.isNotEmpty) filters['maxAge'] = _maxAgeController.text;
     if (_minWeightController.text.isNotEmpty) filters['minWeight'] = _minWeightController.text;
     if (_maxWeightController.text.isNotEmpty) filters['maxWeight'] = _maxWeightController.text;
-    if (_minPriceController.text.isNotEmpty) filters['minPrice'] = _minPriceController.text;
-    if (_maxPriceController.text.isNotEmpty) filters['maxPrice'] = _maxPriceController.text;
+    if (_minPriceController.text.isNotEmpty) filters['minPrice'] = _minPriceController.text.replaceAll('.', '');
+    if (_maxPriceController.text.isNotEmpty) filters['maxPrice'] = _maxPriceController.text.replaceAll('.', '');
     if (_selectedCityName != null) filters['city'] = _selectedCityName;
     if (_selectedDistrictName != null) filters['district'] = _selectedDistrictName;
 
@@ -156,8 +161,8 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
   void _clearFilters() {
     setState(() {
       _selectedCategory = null;
-      _selectedAnimalType = null;
-      _selectedBreed = null;
+      _selectedAnimalTypes.clear();
+      _selectedBreeds.clear();
       _listingType = null;
       _gender = null;
       _healthStatus = null;
@@ -177,8 +182,8 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
   int get _activeFilterCount {
     int count = 0;
     if (_selectedCategory != null) count++;
-    if (_selectedAnimalType != null) count++;
-    if (_selectedBreed != null) count++;
+    if (_selectedAnimalTypes.isNotEmpty) count++;
+    if (_selectedBreeds.isNotEmpty) count++;
     if (_listingType != null) count++;
     if (_gender != null) count++;
     if (_healthStatus != null) count++;
@@ -193,6 +198,7 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
   Widget build(BuildContext context) {
     return Container(
       height: MediaQuery.of(context).size.height * 0.92,
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       decoration: const BoxDecoration(
         color: Color(0xFFF8FAF8),
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
@@ -216,9 +222,7 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
                   ),
                   const SizedBox(height: 12),
                 ],
-                if (_selectedAnimalType != null &&
-                    AppConstants.getBreedsForAnimal(_selectedAnimalType!).isNotEmpty &&
-                    AppConstants.getBreedsForAnimal(_selectedAnimalType!).first != 'Belirtilmemiş') ...[
+                if (_hasAnyBreeds()) ...[
                   _buildSectionCard(
                     title: '🧬 Irk',
                     child: _buildBreedGrid(),
@@ -311,6 +315,7 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
                     minHint: 'Min fiyat',
                     maxHint: 'Max fiyat',
                     suffix: '₺',
+                    isPrice: true,
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -349,38 +354,105 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 12, 12, 16),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Detaylı Arama',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
-                    if (_activeFilterCount > 0)
-                      Text(
-                        '$_activeFilterCount filtre aktif',
-                        style: TextStyle(fontSize: 12, color: Colors.green[700], fontWeight: FontWeight.w500),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Detaylı Arama',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                       ),
-                  ],
-                ),
-                Row(
-                  children: [
-                    if (_activeFilterCount > 0)
-                      TextButton(
-                        onPressed: _clearFilters,
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.red[400],
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                      if (_activeFilterCount > 0)
+                        Text(
+                          '$_activeFilterCount filtre aktif',
+                          style: TextStyle(fontSize: 12, color: Colors.green[700], fontWeight: FontWeight.w500),
                         ),
-                        child: const Text('Temizle'),
+                    ],
+                  ),
+                ),
+                if (_activeFilterCount > 0) ...[
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () async {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Aramayı Sıfırla'),
+                            content: const Text('Tüm arama ve filtreleri temizleyip en başa dönmek istediğinize emin misiniz?'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')),
+                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sıfırla', style: TextStyle(color: Colors.blue))),
+                            ],
+                          ),
+                        );
+                        if (confirm == true) {
+                          _clearFilters();
+                          if (context.mounted) Navigator.pop(context, {'reset': true});
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.sync_rounded, size: 18, color: Colors.blue[600]),
+                              const SizedBox(width: 2),
+                              Text('Sıfırla', style: TextStyle(color: Colors.blue[600], fontWeight: FontWeight.bold, fontSize: 12)),
+                            ],
+                          ),
+                        ),
                       ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context),
                     ),
-                  ],
+                  ),
+                  const SizedBox(width: 2),
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () async {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Filtreleri Temizle'),
+                            content: const Text('Seçili filtreleri temizlemek istediğinize emin misiniz? (Sonuçlar görünmez, sadece form temizlenir)'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')),
+                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Temizle', style: TextStyle(color: Colors.red))),
+                            ],
+                          ),
+                        );
+                        if (confirm == true) {
+                          _clearFilters();
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.filter_alt_off_rounded, size: 18, color: Colors.red[500]),
+                              const SizedBox(width: 2),
+                              Text('Temizle', style: TextStyle(color: Colors.red[500], fontWeight: FontWeight.bold, fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(width: 0),
+                IconButton(
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  icon: const Icon(Icons.close, size: 24),
+                  onPressed: () => Navigator.pop(context),
                 ),
               ],
             ),
@@ -415,8 +487,8 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
       'büyükbaş': '🐄',
       'küçükbaş': '🐑',
       'kanatlı': '🐔',
-      'evcil': '🐕',
-      'diğer': '🐾',
+      'evcil': '🐾',
+      'diğer': '⋯',
     };
     return Wrap(
       spacing: 8,
@@ -428,12 +500,12 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
             setState(() {
               if (_selectedCategory == cat) {
                 _selectedCategory = null;
-                _selectedAnimalType = null;
-                _selectedBreed = null;
+                _selectedAnimalTypes.clear();
+                _selectedBreeds.clear();
               } else {
                 _selectedCategory = cat;
-                _selectedAnimalType = null;
-                _selectedBreed = null;
+                _selectedAnimalTypes.clear();
+                _selectedBreeds.clear();
               }
             });
           },
@@ -474,17 +546,16 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
       spacing: 8,
       runSpacing: 8,
       children: animals.map((animal) {
-        final isSelected = _selectedAnimalType == animal;
+        final isSelected = _selectedAnimalTypes.contains(animal);
         return GestureDetector(
           onTap: () {
             setState(() {
-              if (_selectedAnimalType == animal) {
-                _selectedAnimalType = null;
-                _selectedBreed = null;
+              if (isSelected) {
+                _selectedAnimalTypes.remove(animal);
               } else {
-                _selectedAnimalType = animal;
-                _selectedBreed = null;
+                _selectedAnimalTypes.add(animal);
               }
+              _selectedBreeds.clear();
             });
           },
           child: AnimatedContainer(
@@ -512,17 +583,38 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
     );
   }
 
+  bool _hasAnyBreeds() {
+    if (_selectedAnimalTypes.isEmpty) return false;
+    for (var type in _selectedAnimalTypes) {
+      final b = AppConstants.getBreedsForAnimal(type);
+      if (b.isNotEmpty && b.first != 'Belirtilmemiş') return true;
+    }
+    return false;
+  }
+
   Widget _buildBreedGrid() {
-    final breeds = AppConstants.getBreedsForAnimal(_selectedAnimalType!);
+    List<String> combinedBreeds = [];
+    for (var type in _selectedAnimalTypes) {
+      final b = AppConstants.getBreedsForAnimal(type);
+      if (b.isNotEmpty && b.first != 'Belirtilmemiş') {
+        combinedBreeds.addAll(b);
+      }
+    }
+    final breeds = combinedBreeds.toSet().toList();
+
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: breeds.map((breed) {
-        final isSelected = _selectedBreed == breed;
+        final isSelected = _selectedBreeds.contains(breed);
         return GestureDetector(
           onTap: () {
             setState(() {
-              _selectedBreed = isSelected ? null : breed;
+              if (isSelected) {
+                _selectedBreeds.remove(breed);
+              } else {
+                _selectedBreeds.add(breed);
+              }
             });
           },
           child: AnimatedContainer(
@@ -595,6 +687,7 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
     required String maxHint,
     required String suffix,
     bool isDecimal = false,
+    bool isPrice = false,
   }) {
     return Row(
       children: [
@@ -604,6 +697,7 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
             hint: minHint,
             suffix: suffix,
             isDecimal: isDecimal,
+            isPrice: isPrice,
           ),
         ),
         Padding(
@@ -623,6 +717,7 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
             hint: maxHint,
             suffix: suffix,
             isDecimal: isDecimal,
+            isPrice: isPrice,
           ),
         ),
       ],
@@ -634,15 +729,18 @@ class _AdvancedFilterSheetState extends State<AdvancedFilterSheet> {
     required String hint,
     required String suffix,
     bool isDecimal = false,
+    bool isPrice = false,
   }) {
     return TextField(
       controller: controller,
       keyboardType: isDecimal
           ? const TextInputType.numberWithOptions(decimal: true)
           : TextInputType.number,
-      inputFormatters: isDecimal
-          ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]'))]
-          : [FilteringTextInputFormatter.digitsOnly],
+      inputFormatters: isPrice
+          ? [ThousandsSeparatorInputFormatter()]
+          : isDecimal
+              ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]'))]
+              : [FilteringTextInputFormatter.digitsOnly],
       style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
       decoration: InputDecoration(
         hintText: hint,

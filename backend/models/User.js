@@ -12,6 +12,8 @@ const userSchema = new mongoose.Schema({
   },
   avatar: String,
   favorites: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Listing' }],
+  resetPasswordToken: String,
+  resetPasswordExpires: Date,
   createdAt: { type: Date, default: Date.now }
 });
 

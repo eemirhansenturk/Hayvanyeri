@@ -3,6 +3,8 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const Listing = require('../models/Listing');
+const Notification = require('../models/Notification');
+const User = require('../models/User');
 const auth = require('../middleware/auth');
 const fs = require('fs');
 const sharp = require('sharp');
@@ -24,7 +26,7 @@ router.get('/', async (req, res) => {
       category, listingType, city, district, search,
       animalType, breed, gender, age, weight, healthStatus,
       minPrice, maxPrice, minAge, maxAge, minWeight, maxWeight,
-      page, limit
+      page, limit, sort
     } = req.query;
 
     const pageNum  = Math.max(1, parseInt(page)  || 1);
@@ -37,8 +39,12 @@ router.get('/', async (req, res) => {
     if (listingType) query.listingType = listingType;
     if (city) query['location.city'] = { $regex: city, $options: 'i' };
     if (district) query['location.district'] = { $regex: district, $options: 'i' };
-    if (animalType) query.animalType = animalType;
-    if (breed) query.breed = breed;
+    if (animalType) {
+      query.animalType = { $in: animalType.split(',') };
+    }
+    if (breed) {
+      query.breed = { $in: breed.split(',') };
+    }
     if (gender) query.gender = gender;
     if (age) query.age = age;
     if (weight) query.weight = weight;
@@ -63,16 +69,55 @@ router.get('/', async (req, res) => {
     }
 
     if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
-      ];
+      const searchTerms = search.trim().split(/\s+/).filter(t => t.length > 0);
+      
+      const charMap = {
+        'c': '[cçCÇ]', 'ç': '[cçCÇ]', 'C': '[cçCÇ]', 'Ç': '[cçCÇ]',
+        'g': '[gğGĞ]', 'ğ': '[gğGĞ]', 'G': '[gğGĞ]', 'Ğ': '[gğGĞ]',
+        'i': '[iıİI]', 'ı': '[iıİI]', 'İ': '[iıİI]', 'I': '[iıİI]',
+        'o': '[oöOÖ]', 'ö': '[oöOÖ]', 'O': '[oöOÖ]', 'Ö': '[oöOÖ]',
+        's': '[sşSŞ]', 'ş': '[sşSŞ]', 'S': '[sşSŞ]', 'Ş': '[sşSŞ]',
+        'u': '[uüUÜ]', 'ü': '[uüUÜ]', 'U': '[uüUÜ]', 'Ü': '[uüUÜ]',
+      };
+
+      const searchConditions = searchTerms.map(term => {
+        const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        let regexStr = '';
+        for (let char of escaped) {
+          regexStr += charMap[char] || char;
+        }
+        const regex = { $regex: regexStr, $options: 'i' };
+        
+        return {
+          $or: [
+            { title: regex },
+            { description: regex },
+            { category: regex },
+            { animalType: regex },
+            { breed: regex }
+          ]
+        };
+      });
+
+      if (searchConditions.length > 0) {
+        if (query.$and) {
+          query.$and.push(...searchConditions);
+        } else {
+          query.$and = searchConditions;
+        }
+      }
     }
+
+    let sortOptions = { createdAt: -1 };
+    if (sort === 'price_asc') sortOptions = { price: 1, createdAt: -1 };
+    else if (sort === 'price_desc') sortOptions = { price: -1, createdAt: -1 };
+    else if (sort === 'oldest') sortOptions = { createdAt: 1 };
 
     const [listings, totalCount] = await Promise.all([
       Listing.find(query)
         .populate('user', 'name phone location avatar')
-        .sort({ createdAt: -1 })
+        .populate('favoriteCount')
+        .sort(sortOptions)
         .skip(skip)
         .limit(limitNum)
         .lean(),
@@ -91,18 +136,55 @@ router.get('/', async (req, res) => {
 // Tek ilan detayı
 router.get('/:id', async (req, res) => {
   try {
-    const listing = await Listing.findByIdAndUpdate(
-      req.params.id,
-      { $inc: { views: 1 } },
-      { returnDocument: 'after' }
-    )
+    const listing = await Listing.findById(req.params.id)
       .populate('user', 'name phone location email avatar')
+      .populate('favoriteCount')
       .lean();
     
     if (!listing) {
       return res.status(404).json({ message: 'İlan bulunamadı' });
     }
 
+    const oldViews = listing.views || 0;
+    const newViews = oldViews + 1;
+
+    // Görüntüleme sayısını artır
+    await Listing.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } });
+
+    // 500'ün katlarında bildirim oluştur
+    const milestones = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000];
+    const crossedMilestone = milestones.find(m => oldViews < m && newViews >= m);
+
+    if (crossedMilestone) {
+      try {
+        await Notification.create({
+          user: listing.user._id || listing.user,
+          type: 'view_milestone',
+          title: 'Tebrikler! 🎉',
+          message: `"${listing.title}" adlı ilanınız ${crossedMilestone}. kez görüntülendi!`,
+          listing: listing._id
+        });
+
+        // Socket ile bildirim gönder
+        const io = req.app.get('io');
+        const userSockets = req.app.get('userSockets');
+        if (io && userSockets) {
+          const userId = String(listing.user._id || listing.user);
+          const socketId = userSockets.get(userId);
+          if (socketId && io.sockets.sockets.has(socketId)) {
+            io.to(socketId).emit('new_notification', {
+              type: 'view_milestone',
+              title: 'Tebrikler! 🎉',
+              message: `"${listing.title}" adlı ilanınız ${crossedMilestone}. kez görüntülendi!`
+            });
+          }
+        }
+      } catch (notifError) {
+        console.error('Bildirim oluşturma hatası:', notifError);
+      }
+    }
+
+    listing.views = newViews;
     res.json(listing);
   } catch (error) {
     res.status(500).json({ message: 'İlan getirilemedi', error: error.message });
@@ -120,6 +202,7 @@ router.post('/', auth, upload.array('images', 5), async (req, res) => {
         const outputPath = path.join(uploadDir, filename);
         
         await sharp(file.buffer)
+          .rotate() // EXIF orientation'a göre otomatik döndür
           .webp({ quality: 90 })
           .toFile(outputPath);
           
@@ -146,6 +229,34 @@ router.post('/', auth, upload.array('images', 5), async (req, res) => {
     });
     
     await listing.save();
+
+    // İlan yayınlandı bildirimi oluştur
+    try {
+      await Notification.create({
+        user: req.userId,
+        type: 'listing_published',
+        title: 'İlan Yayınlandı ✅',
+        message: `"${listing.title}" adlı ilanınız başarıyla yayınlanmıştır.`,
+        listing: listing._id
+      });
+
+      // Socket ile bildirim gönder
+      const io = req.app.get('io');
+      const userSockets = req.app.get('userSockets');
+      if (io && userSockets) {
+        const socketId = userSockets.get(String(req.userId));
+        if (socketId && io.sockets.sockets.has(socketId)) {
+          io.to(socketId).emit('new_notification', {
+            type: 'listing_published',
+            title: 'İlan Yayınlandı ✅',
+            message: `"${listing.title}" adlı ilanınız başarıyla yayınlanmıştır.`
+          });
+        }
+      }
+    } catch (notifError) {
+      // Silent error
+    }
+
     res.status(201).json(listing);
   } catch (error) {
     res.status(500).json({ message: 'İlan oluşturulamadı', error: error.message });
@@ -170,6 +281,7 @@ router.put('/:id', auth, upload.array('newImages', 5), async (req, res) => {
         const outputPath = path.join(uploadDir, filename);
         
         await sharp(file.buffer)
+          .rotate() // EXIF orientation'a göre otomatik döndür
           .webp({ quality: 90 })
           .toFile(outputPath);
           
@@ -198,7 +310,7 @@ router.put('/:id', auth, upload.array('newImages', 5), async (req, res) => {
             try {
               fs.unlinkSync(imagePath);
             } catch (err) {
-              console.error('Silinirken hata:', err);
+              // Silent error
             }
           }
         }
@@ -237,6 +349,15 @@ router.delete('/:id', auth, async (req, res) => {
       return res.status(404).json({ message: 'İlan bulunamadı veya yetkiniz yok' });
     }
 
+    // Kullanıcıların favorilerinden bu ilanı kaldır
+    await User.updateMany(
+      { favorites: req.params.id },
+      { $pull: { favorites: req.params.id } }
+    );
+
+    // Bu ilana ait olan bildirimleri tamamen sil
+    await Notification.deleteMany({ listing: req.params.id });
+
     // İlana ait resimleri sunucudan sil
     if (listing.images && listing.images.length > 0) {
       listing.images.forEach(image => {
@@ -245,7 +366,7 @@ router.delete('/:id', auth, async (req, res) => {
           try {
             fs.unlinkSync(imagePath);
           } catch (err) {
-            console.error('Resim silinirken hata oluştu:', err);
+            // Silent error
           }
         }
       });

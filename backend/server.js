@@ -64,8 +64,6 @@ async function markIncomingMessagesDeliveredAndNotify(userId) {
 }
 
 io.on('connection', (socket) => {
-  console.log('Socket connected:', socket.id);
-
   socket.on('register', async (userId) => {
     if (!userId) return;
 
@@ -79,27 +77,22 @@ io.on('connection', (socket) => {
     }
 
     userSockets.set(String(userId), socket.id);
-    console.log(`Registered user ${userId} on socket ${socket.id}`);
-    console.log('Active users:', Array.from(userSockets.keys()));
 
     try {
       await markIncomingMessagesDeliveredAndNotify(userId);
     } catch (error) {
-      console.error('Register delivered sync error:', error);
+      // Silent error
     }
   });
 
   socket.on('disconnect', () => {
-    console.log('Socket disconnected:', socket.id);
     for (const [userId, socketId] of userSockets.entries()) {
       if (socketId === socket.id) {
         userSockets.delete(userId);
-        console.log(`Removed user ${userId} from active map`);
         break;
       }
     }
     pruneStaleSocketMappings();
-    console.log('Active users:', Array.from(userSockets.keys()));
   });
 });
 
@@ -109,6 +102,10 @@ app.set('userSockets', userSockets);
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Serve static files
+app.use(express.static('public'));
+
 app.use('/uploads', express.static('uploads', {
   maxAge: '30d',
   immutable: true
@@ -122,8 +119,13 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-mongoose.connect('mongodb://localhost:27017/hayvanyeri')
-  .then(() => console.log('MongoDB baglantisi basarili'))
+// Şifre sıfırlama sayfası
+app.get('/reset-password/:token', (req, res) => {
+  res.redirect(`/reset-password.html?token=${req.params.token}`);
+});
+
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => {})
   .catch((err) => console.error('MongoDB baglanti hatasi:', err));
 
 // Routes
@@ -133,9 +135,9 @@ app.use('/api/messages', require('./routes/messages'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/locations', require('./routes/locations'));
 app.use('/api/support', require('./routes/support'));
+app.use('/api/notifications', require('./routes/notifications'));
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server ${PORT} portunda calisiyor`);
-  console.log(`Yerel: http://localhost:${PORT}`);
+  console.log(`Server calisiyor: http://localhost:${PORT}`);
 });

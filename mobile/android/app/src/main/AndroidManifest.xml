@@ -1,15 +1,32 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- İnternet erişimi (zorunlu) -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Kamera (ilan fotoğrafı çekmek için) -->
     <uses-permission android:name="android.permission.CAMERA"/>
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+
+    <!-- Android 13+ medya izinleri (galeri) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+
+    <!-- Android 12 ve altı için galeri izni -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+
+    <!-- Bildirim izni (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!-- Titreşim (bildirim için) -->
     <uses-permission android:name="android.permission.VIBRATE"/>
-    
+
     <application
-        android:label="mobile"
+        android:label="Hayvanyeri"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="false"
+        android:allowBackup="false">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -47,6 +64,10 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+            <data android:scheme="tel" />
         </intent>
     </queries>
 </manifest>

@@ -44,4 +44,16 @@ listingSchema.index({ listingType: 1, status: 1 });
 listingSchema.index({ 'location.city': 1, status: 1 });
 listingSchema.index({ user: 1, createdAt: -1 });
 
+// Virtual field for favorite count
+listingSchema.virtual('favoriteCount', {
+  ref: 'User',
+  localField: '_id',
+  foreignField: 'favorites',
+  count: true
+});
+
+// Ensure virtuals are included in JSON
+listingSchema.set('toJSON', { virtuals: true });
+listingSchema.set('toObject', { virtuals: true });
+
 module.exports = mongoose.model('Listing', listingSchema);

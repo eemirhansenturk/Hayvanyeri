@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../services/api_service.dart';
@@ -109,9 +109,13 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                     onTap: () async {
                       await Navigator.push(
                         context,
-                        MaterialPageRoute(
-                          builder: (_) =>
+                        PageRouteBuilder(
+                          opaque: false,
+                          pageBuilder: (context, animation, secondaryAnimation) =>
                               ListingDetailScreen(listingId: listing['_id']),
+                          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                            return FadeTransition(opacity: animation, child: child);
+                          },
                         ),
                       );
                       // Geri dönünce listeyi yenile

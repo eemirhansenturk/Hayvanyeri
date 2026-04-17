@@ -7,6 +7,8 @@ import '../config/api_config.dart';
 import 'listing_detail_screen.dart';
 import 'edit_listing_screen.dart';
 
+import '../utils/formatters.dart';
+
 class MyListingsScreen extends StatefulWidget {
   const MyListingsScreen({super.key});
 
@@ -27,6 +29,7 @@ class _MyListingsScreenState extends State<MyListingsScreen> {
 
   // Debounce bayrağı
   bool _scrollDebounce = false;
+  List<String> _selectedListings = [];
 
   @override
   void initState() {
@@ -114,19 +117,62 @@ class _MyListingsScreenState extends State<MyListingsScreen> {
   Future<void> _deleteListing(String id) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('İlanı Sil'),
-        content: const Text(
-            'Bu ilanı silmek istediğinize emin misiniz? Bu işlem geri alınamaz.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('İptal')),
-          TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Sil',
-                  style: TextStyle(color: Colors.red))),
-        ],
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.delete_outline, color: Colors.red[700], size: 36),
+              ),
+              const SizedBox(height: 16),
+              const Text('İlanı Sil', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text(
+                'Bu ilanı silmek istediğinize emin misiniz? Bu işlem geri alınamaz.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, color: Colors.grey[700], height: 1.4),
+              ),
+              const SizedBox(height: 28),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: BorderSide(color: Colors.grey[300]!),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text('İptal', style: TextStyle(fontSize: 16, color: Colors.grey[700], fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: Colors.red[600],
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Sil', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
     if (confirm != true) return;
@@ -145,6 +191,100 @@ class _MyListingsScreenState extends State<MyListingsScreen> {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(e.toString())));
       }
+    }
+  }
+
+  Future<void> _deleteSelectedListings() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.delete_sweep, color: Colors.red[700], size: 36),
+              ),
+              const SizedBox(height: 16),
+              Text('${_selectedListings.length} İlanı Sil', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text(
+                'Seçili ${_selectedListings.length} ilanı silmek istediğinize emin misiniz? Bu işlem geri alınamaz.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, color: Colors.grey[700], height: 1.4),
+              ),
+              const SizedBox(height: 28),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: BorderSide(color: Colors.grey[300]!),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text('İptal', style: TextStyle(fontSize: 16, color: Colors.grey[700], fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: Colors.red[600],
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Sil', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (confirm != true) return;
+    
+    showDialog(
+      context: context, 
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator())
+    );
+
+    int successCount = 0;
+    for (String id in _selectedListings) {
+      try {
+        await _apiService.deleteListing(id);
+        successCount++;
+        setState(() {
+          _myListings.removeWhere((l) => l.id == id);
+        });
+      } catch (e) {
+        // ignore
+      }
+    }
+    
+    Navigator.pop(context); // loading kapat
+    setState(() {
+      _selectedListings.clear();
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$successCount ilan başarıyla silindi')),
+      );
     }
   }
 
@@ -244,33 +384,69 @@ class _MyListingsScreenState extends State<MyListingsScreen> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
+        onLongPress: () {
+          setState(() {
+            if (_selectedListings.contains(listing.id)) {
+              _selectedListings.remove(listing.id);
+            } else {
+              _selectedListings.add(listing.id);
+            }
+          });
+        },
         onTap: () {
+          if (_selectedListings.isNotEmpty) {
+            setState(() {
+              if (_selectedListings.contains(listing.id)) {
+                _selectedListings.remove(listing.id);
+              } else {
+                _selectedListings.add(listing.id);
+              }
+            });
+            return;
+          }
           Navigator.push(
             context,
-            MaterialPageRoute(
-                builder: (_) => ListingDetailScreen(listingId: listing.id)),
+            PageRouteBuilder(
+              opaque: false,
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  ListingDetailScreen(
+                    listingId: listing.id,
+                    heroTag: 'my-listing-image-${listing.id}',
+                  ),
+              transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                return FadeTransition(opacity: animation, child: child);
+              },
+            ),
           ).then((_) => _silentRefresh());
         },
-        child: Padding(
-          padding: const EdgeInsets.all(12),
+        child: Container(
+          decoration: BoxDecoration(
+            color: _selectedListings.contains(listing.id) ? Colors.green.withOpacity(0.08) : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            border: _selectedListings.contains(listing.id) ? Border.all(color: Colors.green.withOpacity(0.5), width: 2) : Border.all(color: Colors.transparent, width: 2),
+          ),
+          padding: const EdgeInsets.all(10),
           child: Row(
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: listing.images.isNotEmpty
-                    ? CachedNetworkImage(
-                        imageUrl:
-                            '${ApiConfig.uploadsUrl}/${listing.images[0]}',
-                        width: 80,
-                        height: 80,
-                        fit: BoxFit.cover,
-                        placeholder: (context, url) => Shimmer.fromColors(
-                          baseColor: Colors.grey[300]!,
-                          highlightColor: Colors.grey[100]!,
-                          child: Container(
-                              width: 80, height: 80, color: Colors.white),
+                    ? Hero(
+                        tag: 'my-listing-image-${listing.id}',
+                        child: CachedNetworkImage(
+                          imageUrl:
+                              '${ApiConfig.uploadsUrl}/${listing.images[0]}',
+                          width: 80,
+                          height: 80,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Shimmer.fromColors(
+                            baseColor: Colors.grey[300]!,
+                            highlightColor: Colors.grey[100]!,
+                            child: Container(
+                                width: 80, height: 80, color: Colors.white),
+                          ),
+                          errorWidget: (context, url, _) => _buildPlaceholder(),
                         ),
-                        errorWidget: (context, url, _) => _buildPlaceholder(),
                       )
                     : _buildPlaceholder(),
               ),
@@ -289,7 +465,7 @@ class _MyListingsScreenState extends State<MyListingsScreen> {
                     const SizedBox(height: 4),
                     Text(
                       listing.listingType == 'satılık'
-                          ? '${listing.price.toStringAsFixed(0)} ₺'
+                          ? '${AppFormatters.formatPrice(listing.price)} ₺'
                           : 'Sahiplendirme',
                       style: TextStyle(
                         color: listing.listingType == 'satılık'
@@ -333,55 +509,58 @@ class _MyListingsScreenState extends State<MyListingsScreen> {
                   ],
                 ),
               ),
-              PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert, color: Colors.grey),
-                onSelected: (value) {
-                  if (value == 'edit') {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) =>
-                              EditListingScreen(listing: listing)),
-                    ).then((_) => _silentRefresh());
-                  } else if (value == 'toggle_status') {
-                    _updateStatus(listing.id,
-                        listing.status == 'aktif' ? 'pasif' : 'aktif');
-                  } else if (value == 'delete') {
-                    _deleteListing(listing.id);
-                  }
-                },
-                itemBuilder: (BuildContext context) => [
-                  const PopupMenuItem<String>(
-                      value: 'edit',
+              if (_selectedListings.isEmpty)
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert, color: Colors.grey),
+                  onSelected: (value) {
+                    if (value == 'edit') {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) =>
+                                EditListingScreen(listing: listing)),
+                      ).then((_) => _silentRefresh());
+                    } else if (value == 'toggle_status') {
+                      _updateStatus(listing.id,
+                          listing.status == 'aktif' ? 'pasif' : 'aktif');
+                    } else if (value == 'delete') {
+                      _deleteListing(listing.id);
+                    }
+                  },
+                  itemBuilder: (BuildContext context) => [
+                    const PopupMenuItem<String>(
+                        value: 'edit',
+                        child: Row(children: [
+                          Icon(Icons.edit, size: 20, color: Colors.blue),
+                          SizedBox(width: 8),
+                          Text('Düzenle'),
+                        ])),
+                    PopupMenuItem<String>(
+                      value: 'toggle_status',
                       child: Row(children: [
-                        Icon(Icons.edit, size: 20, color: Colors.blue),
-                        SizedBox(width: 8),
-                        Text('Düzenle'),
-                      ])),
-                  PopupMenuItem<String>(
-                    value: 'toggle_status',
-                    child: Row(children: [
-                      Icon(
-                          listing.status == 'aktif'
-                              ? Icons.visibility_off
-                              : Icons.visibility,
-                          size: 20,
-                          color: Colors.orange),
-                      const SizedBox(width: 8),
-                      Text(listing.status == 'aktif'
-                          ? 'Pasife Al'
-                          : 'Aktif Et'),
-                    ]),
-                  ),
-                  const PopupMenuItem<String>(
-                      value: 'delete',
-                      child: Row(children: [
-                        Icon(Icons.delete, size: 20, color: Colors.red),
-                        SizedBox(width: 8),
-                        Text('Sil', style: TextStyle(color: Colors.red)),
-                      ])),
-                ],
-              ),
+                        Icon(
+                            listing.status == 'aktif'
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                            size: 20,
+                            color: Colors.orange),
+                        const SizedBox(width: 8),
+                        Text(listing.status == 'aktif'
+                            ? 'Pasife Al'
+                            : 'Aktif Et'),
+                      ]),
+                    ),
+                    const PopupMenuItem<String>(
+                        value: 'delete',
+                        child: Row(children: [
+                          Icon(Icons.delete, size: 20, color: Colors.red),
+                          SizedBox(width: 8),
+                          Text('Sil', style: TextStyle(color: Colors.red)),
+                        ])),
+                  ],
+                )
+              else 
+                const SizedBox(width: 48), // Checkbox kaldırıldı, ikon genişliği kadar yer ayır
             ],
           ),
         ),
@@ -392,12 +571,36 @@ class _MyListingsScreenState extends State<MyListingsScreen> {
   // ─── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('İlanlarım',
-            style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.green[700],
+    return PopScope(
+      canPop: _selectedListings.isEmpty,
+      onPopInvokedWithResult: (bool didPop, dynamic result) {
+        if (didPop) return;
+        if (_selectedListings.isNotEmpty) {
+          setState(() {
+            _selectedListings.clear();
+          });
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: _selectedListings.isNotEmpty
+              ? Text('${_selectedListings.length} İlan Seçildi', style: const TextStyle(color: Colors.white))
+              : const Text('İlanlarım', style: TextStyle(color: Colors.white)),
+          backgroundColor: Colors.green[700],
         iconTheme: const IconThemeData(color: Colors.white),
+        leading: _selectedListings.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => setState(() => _selectedListings.clear()),
+              )
+            : null,
+        actions: [
+          if (_selectedListings.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.delete),
+              onPressed: _deleteSelectedListings,
+            ),
+        ],
       ),
       body: _isLoading
           ? _buildSkeletonList()
@@ -430,6 +633,7 @@ class _MyListingsScreenState extends State<MyListingsScreen> {
                     },
                   ),
                 ),
+      ),
     );
   }
 
