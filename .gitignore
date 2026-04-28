@@ -2,6 +2,10 @@
 backend/node_modules/
 backend/uploads/
 backend/.env
+backend/serviceAccountKey.json
+backend/check_tokens.js
+backend/test_populate.js
+backend/test_push.js
 
 # Mobile
 mobile/.dart_tool/
@@ -15,6 +19,10 @@ mobile/android/.gradle/
 mobile/android/app/debug/
 mobile/android/app/profile/
 mobile/android/app/release/
+mobile/android/app/google-services.json
+mobile/ios/Runner/GoogleService-Info.plist
+mobile/compile_error.txt
+mobile/lib/temp_test.dart
 
 # IDE
 .vscode/

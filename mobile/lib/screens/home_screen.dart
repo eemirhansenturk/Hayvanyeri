@@ -328,6 +328,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ],
       ),
+      floatingActionButton: (_currentIndex == 0 || _currentIndex == 1)
+          ? Padding(
+              padding: const EdgeInsets.only(bottom: 0),
+              child: FloatingActionButton(
+                onPressed: _openCreateListing,
+                backgroundColor: _primaryGreen,
+                elevation: 6,
+                heroTag: null, // Hero animasyonunu devre dışı bırak
+                child: const Icon(Icons.add_rounded, color: Colors.white, size: 28),
+              ),
+            )
+          : const SizedBox.shrink(), // null yerine boş widget
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: _buildBottomNav(isKeyboardOpen),
     );
   }
@@ -1172,7 +1185,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
                 child: Row(
                   children: [
                     Container(
@@ -1212,10 +1225,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             ),
                           ),
                           Text(
-                            'Türkiye\'nin güvenli hayvan pazarı',
+                            'Türkiye\'nin En Güvenilir Hayvan Pazarı',
                             style: TextStyle(
                               color: Colors.white70,
-                              fontSize: 12,
+                              fontSize: 11.4,
                             ),
                           ),
                         ],
@@ -1481,42 +1494,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           child: SafeArea(
             top: false,
             child: SizedBox(
-              height: 82,
+              height: 68,
               child: Row(
                 children: [
                   _buildNavItem(0, Icons.home_outlined, Icons.home_rounded, 'Keşfet'),
                   _buildNavItem(1, Icons.inventory_2_outlined, Icons.inventory_2_rounded, 'İlanlarım'),
-                  if (!isKeyboardOpen)
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: _openCreateListing,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                color: _primaryGreen,
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.add_rounded, color: Colors.white, size: 28),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              'İlan Ekle',
-                              style: TextStyle(
-                                color: _primaryGreen,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else
-                    const Expanded(child: SizedBox()),
                   _buildNavItemWithBadge(
                     2,
                     Icons.chat_bubble_outline_rounded,
@@ -1560,7 +1542,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           children: [
             AnimatedContainer(
               duration: const Duration(milliseconds: 220),
-              padding: const EdgeInsets.all(7),
+              padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
                 color: isSelected ? _primaryGreen.withValues(alpha: 0.10) : Colors.transparent,
                 borderRadius: BorderRadius.circular(12),
@@ -1568,15 +1550,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               child: Icon(
                 isSelected ? filledIcon : outlinedIcon,
                 color: isSelected ? _primaryGreen : const Color(0xFF1F2937),
-                size: 25,
+                size: 26,
               ),
             ),
-            const SizedBox(height: 3),
+            const SizedBox(height: 2),
             Text(
               label,
               style: TextStyle(
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
                 color: isSelected ? _primaryGreen : const Color(0xFF1F2937),
               ),
             ),
@@ -1633,7 +1615,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               children: [
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 220),
-                  padding: const EdgeInsets.all(7),
+                  padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
                     color: isSelected ? _primaryGreen.withValues(alpha: 0.10) : Colors.transparent,
                     borderRadius: BorderRadius.circular(12),
@@ -1641,7 +1623,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   child: Icon(
                     isSelected ? filledIcon : outlinedIcon,
                     color: isSelected ? _primaryGreen : const Color(0xFF1F2937),
-                    size: 25,
+                    size: 26,
                   ),
                 ),
                 if (badge > 0)
@@ -1670,12 +1652,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
               ],
             ),
-            const SizedBox(height: 3),
+            const SizedBox(height: 2),
             Text(
               label,
               style: TextStyle(
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
                 color: isSelected ? _primaryGreen : const Color(0xFF1F2937),
               ),
             ),

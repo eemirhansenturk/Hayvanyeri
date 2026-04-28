@@ -24,6 +24,56 @@ class ApiService {
   }
 
   // Auth
+  Future<Map<String, dynamic>> sendVerificationCode(Map<String, dynamic> data) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/send-verification'),
+        headers: await _getHeaders(),
+        body: jsonEncode(data),
+      ).timeout(timeout);
+      
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        final error = jsonDecode(response.body);
+        throw Exception(error['message'] ?? 'Kod gönderilemedi');
+      }
+    } on SocketException {
+      throw Exception('İnternet bağlantısı yok. Lütfen bağlantınızı kontrol edin.');
+    } on TimeoutException {
+      throw Exception('Bağlantı zaman aşımına uğradı. Lütfen tekrar deneyin.');
+    } on FormatException {
+      throw Exception('Sunucudan geçersiz yanıt alındı.');
+    } catch (e) {
+      throw Exception('Bağlantı hatası: ${e.toString().replaceAll('Exception: ', '')}');
+    }
+  }
+
+  Future<Map<String, dynamic>> verifyCode(Map<String, dynamic> data) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/verify-code'),
+        headers: await _getHeaders(),
+        body: jsonEncode(data),
+      ).timeout(timeout);
+      
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        final error = jsonDecode(response.body);
+        throw Exception(error['message'] ?? 'Doğrulama başarısız');
+      }
+    } on SocketException {
+      throw Exception('İnternet bağlantısı yok. Lütfen bağlantınızı kontrol edin.');
+    } on TimeoutException {
+      throw Exception('Bağlantı zaman aşımına uğradı. Lütfen tekrar deneyin.');
+    } on FormatException {
+      throw Exception('Sunucudan geçersiz yanıt alındı.');
+    } catch (e) {
+      throw Exception('Bağlantı hatası: ${e.toString().replaceAll('Exception: ', '')}');
+    }
+  }
+
   Future<Map<String, dynamic>> register(Map<String, dynamic> data) async {
     try {
       final response = await http.post(
@@ -253,6 +303,10 @@ class ApiService {
       'messages': data['messages'] as List<dynamic>,
       'hasMore': data['hasMore'] as bool? ?? false,
       'total': data['total'] as int? ?? 0,
+      'listingRemoved': data['listingRemoved'] as bool? ?? false,
+      'listingPassive': data['listingPassive'] as bool? ?? false,
+      'listingTitle': data['listingTitle'] as String?,
+      'listingOwner': data['listingOwner'] as String?,
     };
   }
 

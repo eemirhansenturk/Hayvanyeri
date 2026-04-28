@@ -289,11 +289,95 @@ class _MyListingsScreenState extends State<MyListingsScreen> {
   }
 
   Future<void> _updateStatus(String id, String newStatus) async {
+    // Modal ile onay al
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: newStatus == 'aktif' ? Colors.green[50] : Colors.amber[50],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  newStatus == 'aktif' ? Icons.check_circle_outline : Icons.pause_circle_outline,
+                  color: newStatus == 'aktif' ? Colors.green[700] : Colors.amber[700],
+                  size: 36,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                newStatus == 'aktif' ? 'İlanı Aktif Et' : 'İlanı Pasife Al',
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                newStatus == 'aktif'
+                    ? 'İlanınız keşfet sayfasında tekrar yayınlanacak ve diğer kullanıcılar tarafından görülebilecek.'
+                    : 'İlanınız keşfet sayfasından kaldırılacak ve diğer kullanıcılar tarafından görülemeyecek.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, color: Colors.grey[700], height: 1.4),
+              ),
+              const SizedBox(height: 28),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: BorderSide(color: Colors.grey[300]!),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text(
+                        'İptal',
+                        style: TextStyle(fontSize: 16, color: Colors.grey[700], fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: newStatus == 'aktif' ? Colors.green[600] : Colors.amber[700],
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text(
+                        newStatus == 'aktif' ? 'Aktif Et' : 'Pasife Al',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (confirmed != true) return;
+
     try {
       await _apiService.updateListingStatus(id, newStatus);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('İlan durumu güncellendi')));
+          SnackBar(
+            content: Text(
+              newStatus == 'aktif' ? 'İlan aktif edildi' : 'İlan pasife alındı',
+            ),
+          ),
+        );
         // silentRefresh scroll pozisyonuna dokunmaz
         await _silentRefresh();
       }

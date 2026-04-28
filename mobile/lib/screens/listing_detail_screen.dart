@@ -1,9 +1,11 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/api_service.dart';
+import 'package:share_plus/share_plus.dart';
 import '../providers/auth_provider.dart';
 import '../config/api_config.dart';
 import '../utils/formatters.dart';
@@ -219,6 +221,8 @@ class _ListingDetailScreenState extends State<ListingDetailScreen>
 
     final images = List<String>.from(_listing!['images'] ?? []);
     final user = _listing!['user'];
+    final listingStatus = _listing!['status']?.toString() ?? 'aktif';
+    final isListingPassive = listingStatus == 'pasif';
     final isSatilik =
         _listing!['listingType'] == 'satılık' ||
         _listing!['listingType'] == 'kurbanlık' ||
@@ -266,7 +270,9 @@ class _ListingDetailScreenState extends State<ListingDetailScreen>
           },
           child: Scaffold(
             backgroundColor: Colors.transparent,
-            body: CustomScrollView(
+            body: Stack(
+              children: [
+                CustomScrollView(
               controller: _scrollController,
               physics: const ClampingScrollPhysics(),
               slivers: [
@@ -327,11 +333,8 @@ class _ListingDetailScreenState extends State<ListingDetailScreen>
                   IconButton(
                     icon: const Icon(Icons.share, color: Colors.white),
                     onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Paylaşma özelliği yakında eklenecek'),
-                        ),
-                      );
+                      final url = 'https://hayvanyeri.com/ilan/${widget.listingId}';
+                      Share.share('${_listing!['title']}\n$url');
                     },
                   ),
                 ],
@@ -1357,6 +1360,16 @@ class _ListingDetailScreenState extends State<ListingDetailScreen>
                 ),
               ],
             ),
+                if (isListingPassive)
+                  IgnorePointer(
+                    child: SizedBox.expand(
+                      child: CustomPaint(
+                        painter: _PassiveListingWatermarkPainter(),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         );
       },
@@ -1803,3 +1816,51 @@ class _ZoomableImagePageState extends State<_ZoomableImagePage>
   }
 }
 
+
+// ─── Passive listing watermark painter ───────────────────────────────────────
+class _PassiveListingWatermarkPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final textStyle = const TextStyle(
+      fontSize: 32,
+      fontWeight: FontWeight.bold,
+      letterSpacing: 3,
+    );
+    final textSpan = TextSpan(
+      text: 'İLAN PASİFE ALINDI',
+      style: textStyle.copyWith(
+        color: Colors.amber.withValues(alpha: 0.18),
+      ),
+    );
+    final textPainter = TextPainter(
+      text: textSpan,
+      textDirection: ui.TextDirection.ltr,
+    )..layout();
+
+    canvas.save();
+    
+    // Sol alttan sağ yukarıya doğru çapraz yerleştirme
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+    
+    canvas.translate(centerX, centerY);
+    canvas.rotate(-0.42); // Yaklaşık -24 derece
+    
+    // Metni ortala
+    final textWidth = textPainter.width;
+    final textHeight = textPainter.height;
+    
+    // Birden fazla satır halinde göster
+    for (int i = -2; i <= 2; i++) {
+      final offsetY = i * (textHeight + 80);
+      textPainter.paint(canvas, Offset(-textWidth / 2, offsetY - textHeight / 2));
+      textPainter.paint(canvas, Offset(-textWidth / 2 - textWidth - 60, offsetY - textHeight / 2));
+      textPainter.paint(canvas, Offset(-textWidth / 2 + textWidth + 60, offsetY - textHeight / 2));
+    }
+    
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}

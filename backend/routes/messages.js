@@ -6,6 +6,7 @@ const Notification = require('../models/Notification');
 const Listing = require('../models/Listing');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
+const { sendPushNotification } = require('../utils/firebase');
 
 function getActiveSocketId(req, userId) {
   const io = req.app.get('io');
@@ -156,7 +157,7 @@ router.get('/conversations', auth, async (req, res) => {
       conversations = await Message.find({ _id: { $in: paginatedIds } })
         .populate('sender', 'name avatar')
         .populate('receiver', 'name avatar')
-        .populate('listing', 'title images')
+        .populate('listing', 'title images status')
         .lean();
 
       const orderMap = new Map(paginatedIds.map((id, index) => [String(id), index]));
@@ -264,12 +265,22 @@ router.get('/:listingId/:otherUserId', auth, async (req, res) => {
       }
     }
 
+    // İlan durumunu kontrol et
+    const ListingModel = require('../models/Listing');
+    const listingInfo = await ListingModel.findById(req.params.listingId).select('status title user').lean();
+    const listingRemoved = !listingInfo || listingInfo.status === 'silindi';
+    const listingPassive = listingInfo && listingInfo.status === 'pasif';
+
     res.json({
       messages,
       hasMore: skip > 0,
       total,
       page,
-      limit
+      limit,
+      listingRemoved,
+      listingPassive,
+      listingTitle: listingInfo?.title ?? null,
+      listingOwner: listingInfo?.user ? String(listingInfo.user) : null
     });
   } catch (error) {
     res.status(500).json({ message: 'Mesajlar getirilemedi' });
@@ -280,6 +291,12 @@ router.get('/:listingId/:otherUserId', auth, async (req, res) => {
 router.post('/', auth, async (req, res) => {
   try {
     const { listing, receiver, content } = req.body;
+
+    // İlan silinmiş veya pasif mi kontrol et
+    const listingDoc = await require('../models/Listing').findById(listing).select('status').lean();
+    if (!listingDoc || listingDoc.status === 'silindi' || listingDoc.status === 'pasif') {
+      return res.status(403).json({ message: 'Bu ilan kaldırıldığı veya pasif olduğu için mesaj gönderilemiyor' });
+    }
 
     const message = new Message({
       listing,
@@ -324,6 +341,29 @@ router.post('/', auth, async (req, res) => {
           });
         }
       }
+    }
+
+    // Push notification gönder
+    try {
+      const receiverUser = await User.findById(receiver).select('fcmTokens').lean();
+      if (receiverUser && receiverUser.fcmTokens && receiverUser.fcmTokens.length > 0) {
+        const senderName = (message.sender && message.sender.name) ? message.sender.name : 'Bir kullanıcı';
+        const listingTitle = (message.listing && message.listing.title) ? message.listing.title : 'İlan';
+        sendPushNotification(
+          receiverUser.fcmTokens,
+          'Yeni Mesaj 💬',
+          `${senderName} kullanıcısı "${listingTitle}" adlı ilanınız için size mesaj attı:\n${content}`,
+          { 
+            type: 'message', 
+            listingId: String(listing),
+            listingTitle: listingTitle,
+            otherUserId: String(req.userId),
+            otherUserName: senderName
+          }
+        );
+      }
+    } catch (pushErr) {
+      console.error('Mesaj push gonderim hatasi:', pushErr);
     }
 
     // Mesaj bildirimi oluştur (ilan sahibine) - Sadece yanıt alınmamışsa

@@ -8,6 +8,7 @@ const User = require('../models/User');
 const Listing = require('../models/Listing');
 const Notification = require('../models/Notification');
 const auth = require('../middleware/auth');
+const { sendPushNotification } = require('../utils/firebase');
 
 const avatarUploadDir = 'uploads/avatars/';
 if (!fs.existsSync(avatarUploadDir)) {
@@ -126,12 +127,12 @@ router.get('/my-listings', auth, async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
 
     const [listings, totalCount] = await Promise.all([
-      Listing.find({ user: req.userId })
+      Listing.find({ user: req.userId, status: { $ne: 'silindi' } })
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum)
         .lean(),
-      Listing.countDocuments({ user: req.userId })
+      Listing.countDocuments({ user: req.userId, status: { $ne: 'silindi' } })
     ]);
 
     const totalPages = Math.ceil(totalCount / limitNum);
@@ -183,6 +184,21 @@ router.post('/favorites/:listingId', auth, async (req, res) => {
                 message: `${user.name} kullanıcısı "${listing.title}" adlı ilanınızı favorilerine ekledi.`
               });
             }
+          }
+
+          // Push notification gönder
+          try {
+            const listingOwner = await User.findById(listing.user).select('fcmTokens').lean();
+            if (listingOwner && listingOwner.fcmTokens && listingOwner.fcmTokens.length > 0) {
+              sendPushNotification(
+                listingOwner.fcmTokens,
+                'Yeni Favori ❤️',
+                `${user.name} kullanıcısı "${listing.title}" adlı ilanınızı favorilerine ekledi.`,
+                { type: 'favorite', listingId: String(listingId) }
+              );
+            }
+          } catch (pushErr) {
+            console.error('Favori push gonderim hatasi:', pushErr);
           }
         } catch (notifError) {
           // Silent error
@@ -247,6 +263,35 @@ router.put('/change-password', auth, async (req, res) => {
     return res.json({ success: true, message: 'Şifre başarıyla güncellendi' });
   } catch (error) {
     return res.status(500).json({ message: 'Şifre güncellenemedi', error: error.message });
+  }
+});
+
+// FCM Token Kaydetme
+router.post('/fcm-token', auth, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ message: 'Token zorunludur' });
+    }
+
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({ message: 'Kullanıcı bulunamadı' });
+    }
+
+    if (!user.fcmTokens) {
+      user.fcmTokens = [];
+    }
+
+    // Token zaten yoksa ekle (tekrarları önle)
+    if (!user.fcmTokens.includes(token)) {
+      user.fcmTokens.push(token);
+      await user.save();
+    }
+
+    return res.json({ success: true, message: 'FCM Token kaydedildi' });
+  } catch (error) {
+    return res.status(500).json({ message: 'FCM Token kaydedilemedi', error: error.message });
   }
 });
 

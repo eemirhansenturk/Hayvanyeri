@@ -8,6 +8,7 @@ const User = require('../models/User');
 const auth = require('../middleware/auth');
 const fs = require('fs');
 const sharp = require('sharp');
+const { sendPushNotification } = require('../utils/firebase');
 
 // Klasörü oluştur (yoksa)
 const uploadDir = 'uploads/ilanlar/';
@@ -145,46 +146,60 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ message: 'İlan bulunamadı' });
     }
 
-    const oldViews = listing.views || 0;
-    const newViews = oldViews + 1;
-
-    // Görüntüleme sayısını artır
-    await Listing.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } });
-
-    // 500'ün katlarında bildirim oluştur
-    const milestones = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000];
-    const crossedMilestone = milestones.find(m => oldViews < m && newViews >= m);
-
-    if (crossedMilestone) {
-      try {
-        await Notification.create({
-          user: listing.user._id || listing.user,
-          type: 'view_milestone',
-          title: 'Tebrikler! 🎉',
-          message: `"${listing.title}" adlı ilanınız ${crossedMilestone}. kez görüntülendi!`,
-          listing: listing._id
-        });
-
-        // Socket ile bildirim gönder
-        const io = req.app.get('io');
-        const userSockets = req.app.get('userSockets');
-        if (io && userSockets) {
-          const userId = String(listing.user._id || listing.user);
-          const socketId = userSockets.get(userId);
-          if (socketId && io.sockets.sockets.has(socketId)) {
-            io.to(socketId).emit('new_notification', {
-              type: 'view_milestone',
-              title: 'Tebrikler! 🎉',
-              message: `"${listing.title}" adlı ilanınız ${crossedMilestone}. kez görüntülendi!`
-            });
-          }
-        }
-      } catch (notifError) {
-        console.error('Bildirim oluşturma hatası:', notifError);
-      }
+    // İlan silinmişse sadece temel bilgileri döndür (sohbet geçmişi için)
+    if (listing.status === 'silindi') {
+      return res.json({
+        _id: listing._id,
+        title: listing.title,
+        user: listing.user,
+        status: listing.status,
+        isRemoved: true
+      });
     }
 
-    listing.views = newViews;
+    // Pasif ilanlarda görüntüleme sayısını artırma
+    if (listing.status !== 'pasif') {
+      const oldViews = listing.views || 0;
+      const newViews = oldViews + 1;
+
+      // Görüntüleme sayısını artır
+      await Listing.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } });
+
+      // 500'ün katlarında bildirim oluştur
+      const milestones = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000];
+      const crossedMilestone = milestones.find(m => oldViews < m && newViews >= m);
+
+      if (crossedMilestone) {
+        try {
+          await Notification.create({
+            user: listing.user._id || listing.user,
+            type: 'view_milestone',
+            title: 'Tebrikler! 🎉',
+            message: `"${listing.title}" adlı ilanınız ${crossedMilestone}. kez görüntülendi!`,
+            listing: listing._id
+          });
+
+          // Socket ile bildirim gönder
+          const io = req.app.get('io');
+          const userSockets = req.app.get('userSockets');
+          if (io && userSockets) {
+            const userId = String(listing.user._id || listing.user);
+            const socketId = userSockets.get(userId);
+            if (socketId && io.sockets.sockets.has(socketId)) {
+              io.to(socketId).emit('new_notification', {
+                type: 'view_milestone',
+                title: 'Tebrikler! 🎉',
+                message: `"${listing.title}" adlı ilanınız ${crossedMilestone}. kez görüntülendi!`
+              });
+            }
+          }
+        } catch (notifError) {
+          console.error('Bildirim oluşturma hatası:', notifError);
+        }
+      }
+
+      listing.views = newViews;
+    }
     res.json(listing);
   } catch (error) {
     res.status(500).json({ message: 'İlan getirilemedi', error: error.message });
@@ -252,6 +267,17 @@ router.post('/', auth, upload.array('images', 5), async (req, res) => {
             message: `"${listing.title}" adlı ilanınız başarıyla yayınlanmıştır.`
           });
         }
+      }
+
+      // FCM push notification gönder
+      const publisher = await User.findById(req.userId).select('fcmTokens').lean();
+      if (publisher && publisher.fcmTokens && publisher.fcmTokens.length > 0) {
+        sendPushNotification(
+          publisher.fcmTokens,
+          'İlan Yayınlandı ✅',
+          `"${listing.title}" adlı ilanınız başarıyla yayınlanmıştır.`,
+          { type: 'listing_published', listingId: String(listing._id) }
+        );
       }
     } catch (notifError) {
       // Silent error
@@ -334,16 +360,29 @@ router.put('/:id', auth, upload.array('newImages', 5), async (req, res) => {
     Object.assign(listing, bodyData, { images: finalImages, updatedAt: Date.now() });
     await listing.save();
     
+    // Eğer ilan pasife alındıysa veya silinmişse, sohbetlere bildirim gönder
+    if (bodyData.status === 'pasif' || bodyData.status === 'silindi') {
+      try {
+        const io = req.app.get('io');
+        if (io) {
+          io.emit('listing_removed', { 
+            listingId: String(req.params.id),
+            status: bodyData.status 
+          });
+        }
+      } catch (_) {}
+    }
+    
     res.json(listing);
   } catch (error) {
     res.status(500).json({ message: 'İlan güncellenemedi', error: error.message });
   }
 });
 
-// İlan sil
+// İlan sil (soft-delete: mesaj geçmişi korunur, görseller silinir)
 router.delete('/:id', auth, async (req, res) => {
   try {
-    const listing = await Listing.findOneAndDelete({ _id: req.params.id, user: req.userId });
+    const listing = await Listing.findOne({ _id: req.params.id, user: req.userId });
     
     if (!listing) {
       return res.status(404).json({ message: 'İlan bulunamadı veya yetkiniz yok' });
@@ -358,7 +397,7 @@ router.delete('/:id', auth, async (req, res) => {
     // Bu ilana ait olan bildirimleri tamamen sil
     await Notification.deleteMany({ listing: req.params.id });
 
-    // İlana ait resimleri sunucudan sil
+    // İlana ait resimleri sunucudan sil (mesaj geçmişi için ilan kaydı kalır)
     if (listing.images && listing.images.length > 0) {
       listing.images.forEach(image => {
         const imagePath = path.join(__dirname, '../uploads', image);
@@ -371,6 +410,23 @@ router.delete('/:id', auth, async (req, res) => {
         }
       });
     }
+
+    // Soft-delete: status'ü 'silindi' yap, görselleri temizle
+    listing.status = 'silindi';
+    listing.images = [];
+    await listing.save();
+
+    // Alıcı taraftaki sohbetlere anlık bildirim gönder
+    try {
+      const io = req.app.get('io');
+      const userSockets = req.app.get('userSockets');
+      if (io && userSockets) {
+        io.emit('listing_removed', { 
+          listingId: String(req.params.id),
+          status: 'silindi'
+        });
+      }
+    } catch (_) {}
 
     res.json({ message: 'İlan silindi' });
   } catch (error) {

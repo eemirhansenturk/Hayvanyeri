@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
-import 'home_screen.dart';
+import 'email_verification_screen.dart';
 
 // Türkçe karakterleri destekleyen Title Case formatter
 class TurkishTitleCaseFormatter extends TextInputFormatter {
@@ -86,7 +86,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _isLoading = true);
 
-    final response = await Provider.of<AuthProvider>(context, listen: false).register({
+    final response = await Provider.of<AuthProvider>(context, listen: false).sendVerificationCode({
       'name': _nameController.text.trim(),
       'email': _emailController.text.trim(),
       'password': _passwordController.text,
@@ -95,11 +95,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     if (mounted) {
       setState(() => _isLoading = false);
-      if (response['success'] == true) {
-        Navigator.pushAndRemoveUntil(
+      if (response['userId'] != null) {
+        Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-          (route) => false,
+          MaterialPageRoute(
+            builder: (_) => EmailVerificationScreen(
+              userId: response['userId'],
+              email: _emailController.text.trim(),
+            ),
+          ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(

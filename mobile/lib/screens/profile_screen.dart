@@ -6,6 +6,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 
+import 'package:url_launcher/url_launcher.dart';
+
 import '../config/api_config.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
@@ -172,8 +174,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _viewAvatar(String avatarUrl, dynamic user) {
-    if (avatarUrl.isEmpty) return;
-    
     Navigator.of(context).push(
       MaterialPageRoute(
         fullscreenDialog: true,
@@ -182,13 +182,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
           body: Stack(
             fit: StackFit.expand,
             children: [
-              InteractiveViewer(
-                child: CachedNetworkImage(
-                  imageUrl: avatarUrl,
-                  fit: BoxFit.contain,
-                  placeholder: (_, __) => const Center(child: CircularProgressIndicator(color: Colors.white)),
-                  errorWidget: (_, __, ___) => _buildInitialAvatar(user),
-                ),
+              Center(
+                child: avatarUrl.isNotEmpty
+                    ? InteractiveViewer(
+                        child: CachedNetworkImage(
+                          imageUrl: avatarUrl,
+                          fit: BoxFit.contain,
+                          placeholder: (_, __) => const Center(
+                            child: CircularProgressIndicator(color: Colors.white),
+                          ),
+                          errorWidget: (_, __, ___) => _buildFullScreenInitialAvatar(user),
+                        ),
+                      )
+                    : _buildFullScreenInitialAvatar(user),
               ),
               Positioned(
                 top: 50,
@@ -205,6 +211,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFullScreenInitialAvatar(Map<String, dynamic> user) {
+    final name = (user['name'] ?? '').toString();
+    final first = name.isNotEmpty ? name[0].toUpperCase() : '?';
+    return Container(
+      width: 300,
+      height: 300,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.green[400]!,
+            Colors.green[700]!,
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.3),
+            blurRadius: 30,
+            spreadRadius: 10,
+          ),
+        ],
+      ),
+      child: Center(
+        child: Text(
+          first,
+          style: const TextStyle(
+            fontSize: 120,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
           ),
         ),
       ),
@@ -453,6 +496,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         MaterialPageRoute(builder: (_) => const SupportScreen()),
                       );
                     }),
+                    _buildMenuItem(Icons.star_rate_rounded, 'Uygulamayı Değerlendir', _rateApp),
                     _buildMenuItem(Icons.info_outline, 'Hakkımızda', () => _showComingSoon(context)),
                     const SizedBox(height: 16),
                     _buildMenuItem(
@@ -594,6 +638,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Text(title, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
       ],
     );
+  }
+
+  Future<void> _rateApp() async {
+    // Paket adı + App Store ID’yi buraya yaz
+    const androidPackageName = 'com.qparkai.hayvanyeri';
+    const iosAppId = '6762561614';
+
+    final uri = Platform.isIOS
+        ? Uri.parse('https://apps.apple.com/app/id$iosAppId?action=write-review')
+        : Uri.parse('market://details?id=$androidPackageName');
+
+    final fallbackUri = Platform.isIOS
+        ? Uri.parse('https://apps.apple.com/app/id$iosAppId?action=write-review')
+        : Uri.parse('https://play.google.com/store/apps/details?id=$androidPackageName');
+
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Mağaza açılamadı')),
+        );
+      }
+    }
   }
 
   Widget _buildMenuItem(IconData icon, String title, VoidCallback onTap, {bool isDestructive = false, int? badge}) {

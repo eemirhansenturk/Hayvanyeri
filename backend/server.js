@@ -121,7 +121,7 @@ app.get('/api/health', (req, res) => {
 
 // Şifre sıfırlama sayfası
 app.get('/reset-password/:token', (req, res) => {
-  res.redirect(`/reset-password.html?token=${req.params.token}`);
+  res.redirect(`/api/reset-password.html?token=${req.params.token}`);
 });
 
 mongoose.connect(process.env.MONGODB_URI)
@@ -136,6 +136,35 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/locations', require('./routes/locations'));
 app.use('/api/support', require('./routes/support'));
 app.use('/api/notifications', require('./routes/notifications'));
+
+// Deep Linking Verification Routes (Android & iOS)
+app.get('/api/.well-known/assetlinks.json', (req, res) => {
+  res.json([{
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.qparkai.hayvanyeri",
+      "sha256_cert_fingerprints": [
+        "AE:25:51:FB:51:F6:D1:E6:37:31:CF:DB:52:CB:3F:71:1C:47:D0:D0:25:4C:04:67:13:52:AA:16:3D:0B:03:5D"
+      ]
+    }
+  }]);
+});
+
+app.get('/api/.well-known/apple-app-site-association', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(JSON.stringify({
+    "applinks": {
+      "apps": [],
+      "details": [
+        {
+          "appID": "359SBFFXD9.com.qparkai.hayvanyeri",
+          "paths": ["/ilan/*"]
+        }
+      ]
+    }
+  }));
+});
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {

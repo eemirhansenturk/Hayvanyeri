@@ -1,12 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:firebase_core/firebase_core.dart';
+import 'services/fcm_service.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'providers/auth_provider.dart';
 import 'screens/splash_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/listing_detail_screen.dart';
 
-void main() {
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb) {
+    await Firebase.initializeApp();
+    await FCMService().init();
+  }
   runApp(const MyApp());
 }
 
@@ -108,9 +119,22 @@ class MyApp extends StatelessWidget {
           ),
         ),
         home: const SplashScreen(),
+        navigatorKey: navigatorKey,
         routes: {
           '/home': (context) => const HomeScreen(),
           '/login': (context) => const LoginScreen(),
+        },
+        onGenerateRoute: (settings) {
+          final uri = Uri.tryParse(settings.name ?? '');
+          if (uri != null && uri.pathSegments.isNotEmpty) {
+            if (uri.pathSegments.first == 'ilan' && uri.pathSegments.length > 1) {
+              final id = uri.pathSegments[1];
+              return MaterialPageRoute(
+                builder: (context) => ListingDetailScreen(listingId: id),
+              );
+            }
+          }
+          return null;
         },
       ),
     );

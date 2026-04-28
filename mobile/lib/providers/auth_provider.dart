@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
+import '../services/fcm_service.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class AuthProvider with ChangeNotifier {
   final ApiService _apiService = ApiService();
@@ -65,6 +67,7 @@ class AuthProvider with ChangeNotifier {
           SocketService().init(usrId.toString());
           try {
             await _apiService.markMessagesAsDelivered();
+            if (!kIsWeb) await FCMService().registerDevice();
           } catch (_) {}
         }
       } catch (e) {
@@ -90,6 +93,7 @@ class AuthProvider with ChangeNotifier {
           SocketService().init(usrId.toString());
           try {
             await _apiService.markMessagesAsDelivered();
+            if (!kIsWeb) await FCMService().registerDevice();
           } catch (_) {}
         }
 
@@ -119,6 +123,7 @@ class AuthProvider with ChangeNotifier {
           SocketService().init(usrId.toString());
           try {
             await _apiService.markMessagesAsDelivered();
+            if (!kIsWeb) await FCMService().registerDevice();
           } catch (_) {}
         }
 
@@ -128,6 +133,46 @@ class AuthProvider with ChangeNotifier {
       return {'success': false, 'message': 'Token alınamadı'};
     } catch (e) {
       print('Register error: $e'); // Debug için
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  Future<Map<String, dynamic>> sendVerificationCode(Map<String, dynamic> data) async {
+    try {
+      final response = await _apiService.sendVerificationCode(data);
+      return response;
+    } catch (e) {
+      print('Send verification error: $e');
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  Future<Map<String, dynamic>> verifyCode(Map<String, dynamic> data) async {
+    try {
+      final response = await _apiService.verifyCode(data);
+      if (response['token'] != null) {
+        _token = response['token'];
+        _user = response['user'];
+        _isAuthenticated = true;
+        
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('token', _token!);
+        
+        final usrId = _user?['_id'] ?? _user?['id'];
+        if (usrId != null) {
+          SocketService().init(usrId.toString());
+          try {
+            await _apiService.markMessagesAsDelivered();
+            if (!kIsWeb) await FCMService().registerDevice();
+          } catch (_) {}
+        }
+
+        notifyListeners();
+        return {'success': true};
+      }
+      return {'success': false, 'message': 'Token alınamadı'};
+    } catch (e) {
+      print('Verify code error: $e');
       return {'success': false, 'message': e.toString()};
     }
   }

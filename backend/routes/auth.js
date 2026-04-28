@@ -3,9 +3,157 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/User');
-const { sendPasswordResetEmail } = require('../utils/emailService');
+const { sendPasswordResetEmail, sendVerificationEmail } = require('../utils/emailService');
 
-// Kayıt
+// Email doğrulama kodu gönder
+router.post('/send-verification', async (req, res) => {
+  try {
+    const { name, email, password, phone } = req.body;
+    
+    // Eğer sadece email varsa (tekrar gönderme), mevcut kullanıcıyı bul
+    if (!name && !password && !phone) {
+      const existingUser = await User.findOne({ 
+        email,
+        verificationCode: { $exists: true }
+      });
+      
+      if (!existingUser) {
+        return res.status(404).json({ message: 'Kullanıcı bulunamadı' });
+      }
+      
+      // Yeni kod oluştur
+      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+      existingUser.verificationCode = verificationCode;
+      existingUser.verificationCodeExpires = Date.now() + 180000; // 3 dakika
+      await existingUser.save();
+      
+      // Email gönder
+      sendVerificationEmail(email, verificationCode)
+        .then(result => {
+          if (!result.success) {
+            console.error(`Doğrulama kodu gönderilemedi (${email}):`, result.error);
+          }
+        })
+        .catch(error => {
+          console.error('Beklenmeyen mail gönderme hatası:', error.message);
+        });
+      
+      return res.json({ 
+        message: 'Doğrulama kodu tekrar gönderildi',
+        userId: existingUser._id 
+      });
+    }
+    
+    // Yeni kayıt için
+    // Email zaten kullanılıyor mu kontrol et
+    const existingUser = await User.findOne({ email });
+    if (existingUser && !existingUser.verificationCode) {
+      return res.status(400).json({ message: 'Bu email zaten kullanılıyor' });
+    }
+    
+    // Eğer doğrulanmamış kullanıcı varsa, onu güncelle
+    if (existingUser && existingUser.verificationCode) {
+      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+      existingUser.name = name;
+      existingUser.password = password;
+      existingUser.phone = phone;
+      existingUser.verificationCode = verificationCode;
+      existingUser.verificationCodeExpires = Date.now() + 180000;
+      await existingUser.save();
+      
+      sendVerificationEmail(email, verificationCode)
+        .then(result => {
+          if (!result.success) {
+            console.error(`Doğrulama kodu gönderilemedi (${email}):`, result.error);
+          }
+        })
+        .catch(error => {
+          console.error('Beklenmeyen mail gönderme hatası:', error.message);
+        });
+      
+      return res.json({ 
+        message: 'Doğrulama kodu email adresinize gönderildi',
+        userId: existingUser._id 
+      });
+    }
+
+    // 6 haneli rastgele kod oluştur
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Geçici kullanıcı oluştur (henüz kaydetme)
+    const tempUser = new User({
+      name,
+      email,
+      password,
+      phone,
+      verificationCode,
+      verificationCodeExpires: Date.now() + 180000 // 3 dakika
+    });
+    
+    await tempUser.save();
+
+    // Email gönder (asenkron)
+    sendVerificationEmail(email, verificationCode)
+      .then(result => {
+        if (!result.success) {
+          console.error(`Doğrulama kodu gönderilemedi (${email}):`, result.error);
+        }
+      })
+      .catch(error => {
+        console.error('Beklenmeyen mail gönderme hatası:', error.message);
+      });
+    
+    res.json({ 
+      message: 'Doğrulama kodu email adresinize gönderildi',
+      userId: tempUser._id 
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Bir hata oluştu', error: error.message });
+  }
+});
+
+// Email doğrulama kodunu kontrol et ve kayıt tamamla
+router.post('/verify-code', async (req, res) => {
+  try {
+    const { userId, code } = req.body;
+    
+    const user = await User.findOne({
+      _id: userId,
+      verificationCode: code,
+      verificationCodeExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: 'Geçersiz veya süresi dolmuş kod' });
+    }
+
+    // Doğrulama alanlarını temizle
+    user.verificationCode = undefined;
+    user.verificationCodeExpires = undefined;
+    await user.save();
+
+    // Token oluştur
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET);
+    
+    res.json({ 
+      success: true,
+      token, 
+      user: { 
+        _id: user._id, 
+        name: user.name, 
+        email: user.email,
+        phone: user.phone,
+        location: user.location,
+        avatar: user.avatar || '',
+        favorites: user.favorites || []
+      } 
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Doğrulama başarısız', error: error.message });
+  }
+});
+
+// Kayıt (eski endpoint - artık kullanılmayacak ama uyumluluk için bırakıyoruz)
 router.post('/register', async (req, res) => {
   try {
     const { name, email, password, phone } = req.body;

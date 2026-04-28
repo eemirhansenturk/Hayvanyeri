@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
@@ -17,6 +18,8 @@ class ChatScreen extends StatefulWidget {
   final String receiverId;
   final String receiverName;
   final String? receiverAvatar;
+  final bool isListingRemoved;
+  final bool isListingPassive;
 
   const ChatScreen({
     super.key,
@@ -25,6 +28,8 @@ class ChatScreen extends StatefulWidget {
     required this.receiverId,
     required this.receiverName,
     this.receiverAvatar,
+    this.isListingRemoved = false,
+    this.isListingPassive = false,
   });
 
   @override
@@ -55,15 +60,22 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   late final Function(Map<String, dynamic>) _messageReceivedListener;
   late final Function(Map<String, dynamic>) _messagesReadListener;
   late final Function(Map<String, dynamic>) _messagesDeliveredListener;
+  late final Function(Map<String, dynamic>) _listingRemovedListener;
+
+  bool _isListingRemoved = false;
+  bool _isListingPassive = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _isListingRemoved = widget.isListingRemoved;
+    _isListingPassive = widget.isListingPassive;
 
     _messageReceivedListener = _onMessageReceived;
     _messagesReadListener = _onMessagesRead;
     _messagesDeliveredListener = _onMessagesDelivered;
+    _listingRemovedListener = _onListingRemoved;
 
     _loadMessages();
     _setupSocketListeners();
@@ -210,6 +222,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     s.addMessageReceivedListener(_messageReceivedListener);
     s.addMessagesReadListener(_messagesReadListener);
     s.addMessagesDeliveredListener(_messagesDeliveredListener);
+    s.addListingRemovedListener(_listingRemovedListener);
   }
 
   void _cleanupSocketListeners() {
@@ -217,6 +230,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     s.removeMessageReceivedListener(_messageReceivedListener);
     s.removeMessagesReadListener(_messagesReadListener);
     s.removeMessagesDeliveredListener(_messagesDeliveredListener);
+    s.removeListingRemovedListener(_listingRemovedListener);
+  }
+
+  void _onListingRemoved(Map<String, dynamic> data) {
+    final removedId = data['listingId']?.toString();
+    final status = data['status']?.toString();
+    print('🟡 Socket Event - listingId: $removedId, status: $status, myListingId: ${widget.listingId}');
+    if (removedId == widget.listingId && mounted) {
+      setState(() {
+        if (status == 'pasif') {
+          _isListingPassive = true;
+          print('🟢 Set isListingPassive = true');
+        } else {
+          _isListingRemoved = true;
+          print('🔴 Set isListingRemoved = true');
+        }
+      });
+    }
   }
 
   void _onMessageReceived(Map<String, dynamic> data) {
@@ -324,11 +355,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       // API kronolojik sÄ±rada dÃ¶nÃ¼yor (eskiâ†’yeni).
       // reverse ListView iÃ§in ters Ã§eviriyoruz (yeniâ†’eski).
       final msgs = (result['messages'] as List<dynamic>).reversed.toList();
+      final removed = result['listingRemoved'] as bool? ?? false;
+      final passive = result['listingPassive'] as bool? ?? false;
+
+      print('🔵 API Response - listingRemoved: $removed, listingPassive: $passive');
 
       setState(() {
         _messages = msgs;
         _hasMore = result['hasMore'] as bool? ?? false;
         _isLoading = false;
+        _isListingRemoved = removed;
+        _isListingPassive = passive;
       });
 
       _markAsRead();
@@ -378,6 +415,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _sendMessage() async {
+    if (_isListingRemoved || _isListingPassive) return;
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
@@ -478,6 +516,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final currentUserId =
         _normalizeId(authProvider.user?['_id'] ?? authProvider.user?['id']);
 
+    // Debug
+    print('🔴 ChatScreen build - isListingRemoved: $_isListingRemoved, isListingPassive: $_isListingPassive');
+
     final avatarPath = (widget.receiverAvatar ?? '').trim();
     final hasAvatar = avatarPath.isNotEmpty;
     final avatarUrl = hasAvatar ? '${ApiConfig.uploadsUrl}/$avatarPath' : '';
@@ -541,6 +582,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   ),
                   GestureDetector(
                     onTap: () {
+                      // İlan kaldırıldıysa detaya gitme, pasifse gidebilir
+                      if (_isListingRemoved) return;
                       if (widget.listingId.isNotEmpty) {
                         Navigator.push(
                           context,
@@ -555,17 +598,63 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         );
                       }
                     },
-                    child: Text(
-                      (widget.listingTitle ?? '').trim().isNotEmpty
-                          ? widget.listingTitle!.trim()
-                          : 'Satıcı',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.green[600],
-                        fontWeight: FontWeight.bold,
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            (widget.listingTitle ?? '').trim().isNotEmpty
+                                ? widget.listingTitle!.trim()
+                                : 'Satıcı',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.green[600],
+                              fontWeight: FontWeight.bold,
+                              decoration: _isListingRemoved
+                                  ? TextDecoration.lineThrough
+                                  : TextDecoration.none,
+                            ),
+                          ),
+                        ),
+                        if (_isListingRemoved) ...[  
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.red[50],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'Kaldırıldı',
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.red[600],
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (_isListingPassive) ...[  
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.amber[50],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'Pasif İlan',
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.amber[800],
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ],
@@ -576,7 +665,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         actions: [
           PopupMenuButton<String>(
             icon: Icon(Icons.more_vert, color: Colors.grey[800]),
-            onSelected: (value) {
+            onSelected: (value) async {
               if (value == 'profile' && widget.receiverId.isNotEmpty) {
                 Navigator.push(
                   context,
@@ -587,7 +676,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     ),
                   ),
                 );
-              } else if (value == 'listing' && widget.listingId.isNotEmpty) {
+              } else if (value == 'listing' && widget.listingId.isNotEmpty && !_isListingRemoved) {
                 Navigator.push(
                   context,
                   PageRouteBuilder(
@@ -599,6 +688,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     },
                   ),
                 );
+              } else if (value == 'delete') {
+                await _deleteConversation();
               }
             },
             itemBuilder: (BuildContext context) => [
@@ -612,13 +703,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   ],
                 ),
               ),
+              if (!_isListingRemoved)
+                const PopupMenuItem<String>(
+                  value: 'listing',
+                  child: Row(
+                    children: [
+                      Icon(Icons.pets, size: 20, color: Colors.green),
+                      SizedBox(width: 8),
+                      Text('İlanı Görüntüle'),
+                    ],
+                  ),
+                ),
               const PopupMenuItem<String>(
-                value: 'listing',
+                value: 'delete',
                 child: Row(
                   children: [
-                    Icon(Icons.pets, size: 20, color: Colors.green),
+                    Icon(Icons.delete_outline, size: 20, color: Colors.green),
                     SizedBox(width: 8),
-                    Text('İlanı Görüntüle'),
+                    Text('Sohbeti Sil'),
                   ],
                 ),
               ),
@@ -629,13 +731,197 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       body: Column(
         children: [
           Expanded(
-            child: _isLoading
-                ? _buildSkeletonList()
-                : _messages.isEmpty
-                    ? _buildEmpty()
-                    : _buildMessageList(currentUserId),
+            child: Stack(
+              children: [
+                _isLoading
+                    ? _buildSkeletonList()
+                    : _messages.isEmpty
+                        ? _buildEmpty()
+                        : _buildMessageList(currentUserId),
+                if (_isListingRemoved) _buildRemovedWatermark(),
+                if (_isListingPassive) _buildPassiveWatermark(),
+              ],
+            ),
           ),
-          _buildInputBar(),
+          (_isListingRemoved || _isListingPassive) ? _buildDisabledInputBar() : _buildInputBar(),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteConversation() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.delete_sweep, color: Colors.red[700], size: 36),
+              ),
+              const SizedBox(height: 16),
+              const Text('Sohbeti Sil', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text(
+                'Bu ilana ait tüm mesajlar sizin için silinecek. İşlem geri alınamaz.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, color: Colors.grey[700], height: 1.4),
+              ),
+              const SizedBox(height: 28),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: BorderSide(color: Colors.grey[300]!),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text('İptal', style: TextStyle(fontSize: 16, color: Colors.grey[700], fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: Colors.red[600],
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Sil', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await _apiService.deleteListingConversationWithUser(
+        widget.listingId,
+        widget.receiverId,
+      );
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Sohbet silinemedi: ${e.toString().replaceAll('Exception: ', '')}'), backgroundColor: Colors.red[600]),
+        );
+      }
+    }
+  }
+
+  Widget _buildRemovedWatermark() {
+    return IgnorePointer(
+      child: SizedBox.expand(
+        child: CustomPaint(
+          painter: _DiagonalWatermarkPainter('İLAN KALDIRILDI'),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPassiveWatermark() {
+    return IgnorePointer(
+      child: SizedBox.expand(
+        child: CustomPaint(
+          painter: _DiagonalWatermarkPainter('İLAN PASİFE ALINDI', color: Colors.amber),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRemovedBar() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.red[700]!, Colors.red[500]!],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.red.withValues(alpha: 0.25),
+            blurRadius: 12,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 14,
+        bottom: 14 + MediaQuery.paddingOf(context).bottom,
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.inventory_2_outlined, color: Colors.white, size: 20),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'İlan Kaldırıldı',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Bu sohbete artık mesaj gönderilemiyor',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.8),
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Text(
+              'Pasif',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -805,9 +1091,109 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ),
     );
   }
+
+  Widget _buildDisabledInputBar() {
+    return Container(
+      padding: EdgeInsets.only(
+        left: 12,
+        right: 12,
+        top: 10,
+        bottom: 10 + MediaQuery.paddingOf(context).bottom,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: TextField(
+              enabled: false,
+              decoration: InputDecoration(
+                hintText: 'Bu ilan artık aktif değil',
+                hintStyle: TextStyle(color: Colors.grey[400]),
+                filled: true,
+                fillColor: Colors.grey[100],
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: BorderSide(color: Colors.grey[300]!),
+                ),
+                disabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: BorderSide(color: Colors.grey[300]!),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            height: 48,
+            width: 48,
+            decoration: BoxDecoration(
+              color: Colors.grey[400],
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.send, color: Colors.white, size: 20),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// â”€â”€â”€ Stateless message bubble â€” gereksiz rebuild olmaz â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Diagonal watermark painter ───────────────────────────────────────────────
+class _DiagonalWatermarkPainter extends CustomPainter {
+  final String text;
+  final Color color;
+  
+  _DiagonalWatermarkPainter(this.text, {this.color = Colors.red});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final textStyle = const TextStyle(
+      fontSize: 28,
+      fontWeight: FontWeight.bold,
+      letterSpacing: 2,
+    );
+    final textSpan = TextSpan(
+      text: text,
+      style: textStyle.copyWith(
+        color: color.withValues(alpha: 0.13),
+      ),
+    );
+    final textPainter = TextPainter(
+      text: textSpan,
+      textDirection: ui.TextDirection.ltr,
+    )..layout();
+
+    canvas.save();
+    final rowHeight = size.height / 5;
+    for (int i = 0; i < 5; i++) {
+      final y = rowHeight * i + rowHeight / 2;
+      final x = -size.width * 0.1;
+      canvas.save();
+      canvas.translate(x + size.width * 0.05 * i, y);
+      canvas.rotate(-0.42);
+      textPainter.paint(canvas, Offset.zero);
+      textPainter.paint(canvas, Offset(textPainter.width + 32, 0));
+      canvas.restore();
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _DiagonalWatermarkPainter old) => old.text != text || old.color != color;
+}
+
+// ─── Stateless message bubble ────────────────────────────────────────────────
 class _MessageBubble extends StatelessWidget {
   final Map<String, dynamic> message;
   final bool isMe;

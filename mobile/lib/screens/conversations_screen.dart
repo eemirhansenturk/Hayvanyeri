@@ -431,7 +431,94 @@ class ConversationsScreenState extends State<ConversationsScreen> {
     }
   }
 
-  void _openChatFromMessage(Map<String, dynamic> message, String? currentUserId) {
+  Future<void> _showDeleteConversationDialog(String otherUserId, String otherUserName) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.delete_sweep, color: Colors.red[700], size: 36),
+              ),
+              const SizedBox(height: 16),
+              const Text('Konuşmaları Sil', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text(
+                '$otherUserName ile olan tüm konuşmalarınızı silmek istediğinizden emin misiniz? İşlem geri alınamaz.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, color: Colors.grey[700], height: 1.4),
+              ),
+              const SizedBox(height: 28),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: BorderSide(color: Colors.grey[300]!),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text('İptal', style: TextStyle(fontSize: 16, color: Colors.grey[700], fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: Colors.red[600],
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Sil', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Siliniyor...')),
+      );
+
+      await _apiService.deleteConversationsWithUser(otherUserId);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Konuşmalar silindi')),
+      );
+
+      _loadConversations();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: ${e.toString().replaceAll('Exception: ', '')}')),
+        );
+      }
+    }
+  }
+
+  void _openChatFromMessage(Map<String, dynamic> message, String? currentUserId, {bool isListingRemoved = false, bool isListingPassive = false}) {
     final listing = message['listing'];
     if (listing is! Map) return;
 
@@ -452,6 +539,8 @@ class ConversationsScreenState extends State<ConversationsScreen> {
           receiverId: (otherUser['_id'] ?? otherUser['id']).toString(),
           receiverName: (otherUser['name'] ?? 'Kullanıcı').toString(),
           receiverAvatar: (otherUser['avatar'] ?? '').toString(),
+          isListingRemoved: isListingRemoved,
+          isListingPassive: isListingPassive,
         ),
       ),
     ).then((_) => _refreshFirstPage());
@@ -604,6 +693,8 @@ class ConversationsScreenState extends State<ConversationsScreen> {
                               ),
                             ),
                           );
+                        } else if (value == 'delete' && otherUserId.isNotEmpty) {
+                          _showDeleteConversationDialog(otherUserId, otherUserName);
                         }
                       },
                       itemBuilder: (BuildContext context) => [
@@ -614,6 +705,16 @@ class ConversationsScreenState extends State<ConversationsScreen> {
                               Icon(Icons.person, size: 20, color: Colors.green),
                               SizedBox(width: 8),
                               Text('Profil detaylarını gör'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem<String>(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete_outline, size: 20, color: Colors.green),
+                              SizedBox(width: 8),
+                              Text('Bu kişiyle konuşmaları sil'),
                             ],
                           ),
                         ),
@@ -641,6 +742,9 @@ class ConversationsScreenState extends State<ConversationsScreen> {
               ...group.threads.map((thread) {
                 final listing = thread['listing'] as Map<String, dynamic>?;
                 final listingTitle = (listing?['title'] ?? 'İlan').toString();
+                final listingStatus = (listing?['status'] ?? 'aktif').toString();
+                final isListingRemoved = listingStatus == 'silindi';
+                final isListingPassive = listingStatus == 'pasif';
                 final senderId = (thread['sender']?['_id'] ?? thread['sender']?['id'])?.toString();
                 final isMeSender = senderId == currentUserId;
                 final threadUnreadCount = _threadUnreadCount(thread, currentUserId);
@@ -656,7 +760,7 @@ class ConversationsScreenState extends State<ConversationsScreen> {
                       _toggleSelection(threadIdStr);
                       return;
                     }
-                    _openChatFromMessage(thread, currentUserId);
+                    _openChatFromMessage(thread, currentUserId, isListingRemoved: isListingRemoved, isListingPassive: isListingPassive);
                   },
                   onLongPress: () {
                      final lId = (listing?['_id'] ?? '').toString();
@@ -674,7 +778,9 @@ class ConversationsScreenState extends State<ConversationsScreen> {
                               ? Colors.green.withValues(alpha: 0.08)
                               : Colors.grey.withValues(alpha: 0.06),
                       borderRadius: BorderRadius.circular(10),
-                      border: isThreadSelected ? Border.all(color: Colors.green, width: 1.5) : Border.all(color: Colors.transparent, width: 1.5),
+                      border: isThreadSelected
+                          ? Border.all(color: Colors.green, width: 1.5)
+                          : Border.all(color: Colors.transparent, width: 1.5),
                     ),
                     child: Row(
                       children: [
@@ -686,15 +792,57 @@ class ConversationsScreenState extends State<ConversationsScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                listingTitle,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[700],
-                                  fontWeight: FontWeight.w600,
-                                ),
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      listingTitle,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[700],
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                  if (isListingRemoved) ...[
+                                    const SizedBox(width: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red[50],
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        'Kaldırıldı',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          color: Colors.red[600],
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                  if (isListingPassive) ...[
+                                    const SizedBox(width: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.amber[50],
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        'Pasif İlan',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          color: Colors.amber[800],
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
                               const SizedBox(height: 2),
                               Text(

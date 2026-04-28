@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/auth_provider.dart';
+import 'onboarding_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -74,6 +76,24 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   }
 
   Future<void> _checkAuth() async {
+    final prefs = await SharedPreferences.getInstance();
+    final onboardingDone = prefs.getBool('onboarding_done') ?? false;
+
+    if (!onboardingDone) {
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (_, a, __) => const OnboardingScreen(),
+            transitionsBuilder: (_, a, __, child) =>
+                FadeTransition(opacity: a, child: child),
+            transitionDuration: const Duration(milliseconds: 600),
+          ),
+        );
+      }
+      return;
+    }
+
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     await authProvider.checkAuth();
     
@@ -170,7 +190,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                                 colors: [Colors.white, Color(0xFFE8F5E9)],
                               ).createShader(bounds),
                               child: const Text(
-                                'HAYVANYERI',
+                                'Hayvanyeri',
                                 style: TextStyle(
                                   fontSize: 42,
                                   fontWeight: FontWeight.w800,
@@ -190,7 +210,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: const Text(
-                                'Türkiyenin En Güvenilir Hayvan Pazarı',
+                                'Türkiye\'nin En Güvenilir Hayvan Pazarı',
                                 style: TextStyle(
                                   fontSize: 14,
                                   color: Colors.white,

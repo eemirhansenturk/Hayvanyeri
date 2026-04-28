@@ -30,7 +30,7 @@ const listingSchema = new mongoose.Schema({
   images: [String],
   status: { 
     type: String, 
-    enum: ['aktif', 'satıldı', 'pasif'],
+    enum: ['aktif', 'satıldı', 'pasif', 'silindi'],
     default: 'aktif'
   },
   views: { type: Number, default: 0 },

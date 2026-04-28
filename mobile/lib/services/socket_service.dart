@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 
@@ -19,6 +19,7 @@ class SocketService {
   final List<Function(Map<String, dynamic>)> _messagesReadListeners = [];
   final List<Function(Map<String, dynamic>)> _messagesDeliveredListeners = [];
   final List<Function(Map<String, dynamic>)> _notificationListeners = [];
+  final List<Function(Map<String, dynamic>)> _listingRemovedListeners = [];
 
   int unreadCount = 0;
   final List<Function(int)> _unreadCountListeners = [];
@@ -94,6 +95,14 @@ class SocketService {
 
   void removeNotificationListener(Function(Map<String, dynamic>) callback) {
     _notificationListeners.remove(callback);
+  }
+
+  void addListingRemovedListener(Function(Map<String, dynamic>) callback) {
+    _listingRemovedListeners.add(callback);
+  }
+
+  void removeListingRemovedListener(Function(Map<String, dynamic>) callback) {
+    _listingRemovedListeners.remove(callback);
   }
 
   int notificationCount = 0;
@@ -173,6 +182,7 @@ class SocketService {
       socket!.off('messages_read');
       socket!.off('messages_delivered');
       socket!.off('new_message_notification');
+      socket!.off('listing_removed');
 
       socket!.on('receive_message', (data) {
         final eventData = _normalizeEventData(data);
@@ -226,6 +236,13 @@ class SocketService {
         _notifyNotificationCountListeners();
 
         for (var listener in _notificationListeners) {
+          listener(eventData);
+        }
+      });
+
+      socket!.on('listing_removed', (data) {
+        final eventData = _normalizeEventData(data);
+        for (var listener in _listingRemovedListeners) {
           listener(eventData);
         }
       });
